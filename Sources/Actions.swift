@@ -83,6 +83,9 @@ enum HtmlActions {
 
     /// Write HTML to temp file and open in default browser
     static func openInBrowser(html: String, retentionDays: UInt32, db: Database) -> URL? {
+        let trimmed = html.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         let htmlDir = cacheDir.appendingPathComponent("ClipForge/html-preview", isDirectory: true)
         try? FileManager.default.createDirectory(at: htmlDir, withIntermediateDirectories: true)
@@ -95,8 +98,14 @@ enum HtmlActions {
         let fileName = "\(ts)_\(uuid).html"
         let fileURL = htmlDir.appendingPathComponent(String(fileName))
 
+        // Wrap fragments in a full HTML5 document so the browser always renders
+        // them rather than offering a download or showing source. Detection
+        // (ContentDetector.isHtml) only flags content that browsers can render
+        // — this wrap is the safety net for fragments like `<div>foo</div>`.
+        let payload = wrapHtmlDocument(trimmed)
+
         do {
-            try html.write(to: fileURL, atomically: true, encoding: .utf8)
+            try payload.write(to: fileURL, atomically: true, encoding: .utf8)
         } catch {
             return nil
         }
@@ -109,6 +118,44 @@ enum HtmlActions {
         NSWorkspace.shared.open(fileURL)
 
         return fileURL
+    }
+
+    /// Wrap an HTML fragment in a full HTML5 document so browsers reliably render
+    /// it. Returns the input unchanged if it's already a complete document.
+    static func wrapHtmlDocument(_ html: String) -> String {
+        let lower = html.lowercased()
+        if lower.hasPrefix("<!doctype")
+            || lower.hasPrefix("<html")
+            || lower.hasPrefix("<?xml") {
+            return html
+        }
+
+        return """
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>ClipForge Preview</title>
+            <style>
+                :root { color-scheme: light dark; }
+                body {
+                    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text",
+                          "PingFang SC", "Helvetica Neue", sans-serif;
+                    margin: 0; padding: 24px;
+                    color: #1d1d1f; background: #fff;
+                }
+                @media (prefers-color-scheme: dark) {
+                    body { color: #f5f5f7; background: #1c1c1e; }
+                    a { color: #6aa9ff; }
+                }
+            </style>
+        </head>
+        <body>
+        \(html)
+        </body>
+        </html>
+        """
     }
 
     /// Clean up expired HTML temp files
@@ -150,8 +197,9 @@ enum ImageActions {
             .replacingOccurrences(of: "{hash}", with: vars.hash)
     }
 
-    /// Save image from source to dest
-    static func saveImage(source: String, dest: String) throws {
+    /// Save image from source to dest, optionally setting the saved file's
+    /// modification/creation time to `fileTimestamp` (defaults to "now").
+    static func saveImage(source: String, dest: String, fileTimestamp: Date = Date()) throws {
         let srcURL = URL(fileURLWithPath: source)
         let destURL = URL(fileURLWithPath: dest)
         let destDir = destURL.deletingLastPathComponent()
@@ -160,11 +208,19 @@ enum ImageActions {
             try FileManager.default.removeItem(at: destURL)
         }
         try FileManager.default.copyItem(at: srcURL, to: destURL)
+
+        // Set the file's modification + creation time. copyItem preserves the
+        // source's mtime, so we override it here.
+        try? FileManager.default.setAttributes(
+            [.modificationDate: fileTimestamp, .creationDate: fileTimestamp],
+            ofItemAtPath: dest
+        )
     }
 
-    /// Auto-save image with naming template and dedup
+    /// Auto-save image with naming template and dedup. `fileTimestamp`
+    /// controls the saved file's mtime/ctime (default: now).
     static func autoSaveImage(source: String, targetDir: String, template: String,
-                              sourceApp: String?) throws -> String {
+                              sourceApp: String?, fileTimestamp: Date = Date()) throws -> String {
         let dir = targetDir.isEmpty
             ? FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first!.appendingPathComponent("Clipboard").path
             : targetDir
@@ -205,7 +261,7 @@ enum ImageActions {
             n += 1
         } while n <= 9999
 
-        try saveImage(source: source, dest: finalPath)
+        try saveImage(source: source, dest: finalPath, fileTimestamp: fileTimestamp)
         return finalPath
     }
 

@@ -19,7 +19,7 @@ struct ClipboardListView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 1) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         ClipboardItemRowView(
                             item: item,
@@ -34,18 +34,16 @@ struct ClipboardListView: View {
                             onOpenHtml: { onOpenHtml(item) },
                             onSaveImage: { onSaveImage(item) }
                         )
-                        .onHover { hovering in
-                            onHover(hovering ? index : nil)
-                        }
                         .id(item.id)
                     }
                 }
+                .padding(.vertical, 4)
             }
-            .frame(width: 280)
             .onChange(of: selectedIndex) { newValue in
                 if newValue >= 0 && newValue < items.count {
-                    // No animation — instant scroll prevents stutter during rapid key nav
-                    proxy.scrollTo(items[newValue].id, anchor: .center)
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        proxy.scrollTo(items[newValue].id, anchor: .center)
+                    }
                 }
             }
         }
@@ -54,6 +52,9 @@ struct ClipboardListView: View {
 
 // MARK: - Clipboard Item Row
 
+/// Single-line row: type pill + preview text (+ pin/action icons).
+/// Source app / time / full content live in the right-side PreviewPane to
+/// keep this list dense and scannable (per user request #4).
 struct ClipboardItemRowView: View {
     let item: ClipboardItem
     let isSelected: Bool
@@ -71,107 +72,110 @@ struct ClipboardItemRowView: View {
         ContentType(rawValue: item.type) ?? .text
     }
 
-    private var timeAgo: String {
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        let diff = now - item.createdAt
-        let minutes = diff / 60000
-        let hours = diff / 3600000
-        let days = diff / 86400000
-
-        if minutes < 1 { return L10n.t("just_now", language: language) }
-        if minutes < 60 { return L10n.t("minutes_ago", language: language, Int(minutes)) }
-        if hours < 24 { return L10n.t("hours_ago", language: language, Int(hours)) }
-        return L10n.t("days_ago", language: language, Int(days))
-    }
-
     var body: some View {
         HStack(spacing: 8) {
-            // Type tag
-            Text(contentType.tag)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .frame(width: 16, height: 16)
-                .background(typeColor.opacity(0.2))
-                .foregroundColor(typeColor)
-                .cornerRadius(3)
+            // Type icon — SF Symbol in a colored capsule (replaces single-letter
+            // tag, which looked blocky next to a real text preview).
+            Image(systemName: contentType.systemImage)
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 22, height: 22)
+                .background(
+                    Capsule(style: .continuous).fill(contentType.tint.opacity(0.18))
+                )
+                .foregroundColor(contentType.tint)
 
-            // Preview text
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.preview ?? item.content ?? "")
-                    .font(.system(size: 12))
-                    .lineLimit(2)
-                    .truncationMode(.tail)
+            // Single-line preview — accent + bold when selected (#8)
+            Text(item.preview ?? item.content ?? "")
+                .font(.system(size: 13, weight: isSelected ? .bold : .medium))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
-                Text(timeAgo)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+            Spacer(minLength: 0)
+
+            if item.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.orange)
             }
 
-            Spacer()
-
-            // Action buttons (visible on hover or selection)
             if isHovered || isSelected {
-                HStack(spacing: 4) {
+                HStack(spacing: 2) {
                     if contentType == .json {
-                        Button(action: onOpenJson) {
-                            Image(systemName: "arrow.up.forward.app")
-                        }
-                        .buttonStyle(.plain)
-                        .help(L10n.t("open_json", language: language))
+                        actionButton("arrow.up.forward.app", help: L10n.t("open_json", language: language), action: onOpenJson)
                     }
                     if contentType == .html {
-                        Button(action: onOpenHtml) {
-                            Image(systemName: "globe")
-                        }
-                        .buttonStyle(.plain)
-                        .help(L10n.t("open_html", language: language))
+                        actionButton("globe", help: L10n.t("open_html", language: language), action: onOpenHtml)
                     }
                     if contentType == .image {
-                        Button(action: onSaveImage) {
-                            Image(systemName: "square.and.arrow.down")
-                        }
-                        .buttonStyle(.plain)
-                        .help(L10n.t("save_image", language: language))
+                        actionButton("square.and.arrow.down", help: L10n.t("save_image", language: language), action: onSaveImage)
                     }
-
-                    Button(action: onPin) {
-                        Image(systemName: item.isPinned ? "pin.fill" : "pin")
-                    }
-                    .buttonStyle(.plain)
-                    .help(item.isPinned ? L10n.t("unpin", language: language) : L10n.t("pin", language: language))
-
-                    Button(action: onDelete) {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.plain)
-                    .help(L10n.t("delete", language: language))
+                    actionButton(
+                        item.isPinned ? "pin.fill" : "pin",
+                        help: item.isPinned ? L10n.t("unpin", language: language) : L10n.t("pin", language: language),
+                        tint: item.isPinned ? .orange : nil,
+                        action: onPin
+                    )
+                    actionButton("trash", help: L10n.t("delete", language: language), action: onDelete)
                 }
-                .font(.system(size: 11))
+                .font(.system(size: 10))
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(rowBackground)
+        )
         .overlay(
-            // Pin indicator
-            Rectangle()
-                .fill(Color.orange)
-                .frame(width: 3)
-                .opacity(item.isPinned ? 1 : 0),
-            alignment: .leading
+            HStack {
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    .fill(Color.accentColor)
+                    .frame(width: 3, height: 18)
+                    .opacity(isSelected ? 1 : 0)
+                    .padding(.leading, 1)
+                Spacer()
+            }
         )
         .contentShape(Rectangle())
-        .onTapGesture { onTap() }
         .onTapGesture(count: 2) { onDoubleTap() }
+        .simultaneousGesture(TapGesture(count: 1).onEnded { onTap() })
     }
 
-    private var typeColor: Color {
-        switch contentType {
-        case .text: return .secondary
-        case .richText: return .blue
-        case .image: return .purple
-        case .files: return .orange
-        case .html: return .green
-        case .json: return .cyan
+    @ViewBuilder
+    private func actionButton(_ symbol: String, help: String, tint: Color? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(tint ?? .secondary)
+                .frame(width: 20, height: 20)
+                .background(Circle().fill(Color.primary.opacity(0.04)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private var rowBackground: Color {
+        if isSelected { return Color.accentColor.opacity(0.18) }
+        if isHovered { return Color.primary.opacity(0.05) }
+        return .clear
+    }
+}
+
+// MARK: - ContentType tint
+
+extension ContentType {
+    /// SF-symbol-style accent color per content type. Slightly desaturated
+    /// so they read well in both light and dark material backgrounds.
+    var tint: Color {
+        switch self {
+        case .text:     return .secondary
+        case .richText: return .indigo
+        case .image:    return .pink
+        case .files:    return .orange
+        case .html:     return .green
+        case .json:     return .blue
         }
     }
 }

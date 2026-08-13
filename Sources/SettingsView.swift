@@ -6,7 +6,6 @@ struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
     let onClose: () -> Void
 
-    @State private var showingFilePicker = false
     @State private var pickingExternalTool = false
     @State private var pickingImagePath = false
 
@@ -14,36 +13,18 @@ struct SettingsView: View {
     private var c: AppConfig { settings.config }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Title bar
-            HStack {
-                Text(L10n.t("settings_title", language: language))
-                    .font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "arrow.left")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    generalSection
-                    jsonSection
-                    htmlSection
-                    imageSection
-                    hotkeySection
-                    feedbackSection
-                }
-                .padding(16)
-            }
+        Form {
+            generalSection
+            jsonSection
+            htmlSection
+            imageSection
+            hotkeySection
+            feedbackSection
         }
-        .frame(width: 680, height: 560)
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .frame(width: 680, height: 600)
+        .background(.regularMaterial)
         .fileImporter(isPresented: $pickingExternalTool, allowedContentTypes: [.application]) { result in
             if case .success(let url) = result {
                 settings.update("json_external_tool", url.path)
@@ -56,226 +37,184 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - General Section
+    // MARK: - Sections
 
+    // MARK: - Sections
+
+    @ViewBuilder
     private var generalSection: some View {
-        settingsSection(title: L10n.t("section_general", language: language)) {
-            HStack {
-                Text(L10n.t("storage_limit", language: language))
-                Spacer()
+        Section(L10n.t("section_general", language: language)) {
+            LabeledContent(L10n.t("storage_limit", language: language)) {
                 TextField("", value: Binding(
-                    get: { settings.config.storageLimit },
+                    get: { c.storageLimit },
                     set: { settings.update("storage_limit", $0) }
                 ), format: .number)
-                .frame(width: 80)
                 .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
             }
 
-            HStack {
-                Text(L10n.t("theme", language: language))
-                Spacer()
-                Picker("", selection: Binding(
-                    get: { settings.config.theme },
-                    set: { settings.update("theme", $0) }
-                )) {
-                    Text(L10n.t("theme_system", language: language)).tag("system")
-                    Text(L10n.t("theme_light", language: language)).tag("light")
-                    Text(L10n.t("theme_dark", language: language)).tag("dark")
-                }
-                .frame(width: 150)
+            Picker(L10n.t("theme", language: language), selection: Binding(
+                get: { c.theme },
+                set: { settings.update("theme", $0) }
+            )) {
+                Text(L10n.t("theme_system", language: language)).tag("system")
+                Text(L10n.t("theme_light", language: language)).tag("light")
+                Text(L10n.t("theme_dark", language: language)).tag("dark")
             }
 
-            HStack {
-                Text(L10n.t("language", language: language))
-                Spacer()
-                Picker("", selection: Binding(
-                    get: { settings.config.language },
-                    set: { settings.update("language", $0) }
-                )) {
-                    Text("中文").tag("zh")
-                    Text("English").tag("en")
-                }
-                .frame(width: 120)
+            Picker(L10n.t("language", language: language), selection: Binding(
+                get: { c.language },
+                set: { settings.update("language", $0) }
+            )) {
+                Text("中文").tag("zh")
+                Text("English").tag("en")
             }
 
-            toggleRow(L10n.t("autostart", language: language), key: "autostart")
-            toggleRow(L10n.t("hide_dock", language: language), key: "hide_dock_icon")
+            Toggle(L10n.t("autostart", language: language), isOn: Binding(
+                get: { c.autostart },
+                set: { settings.update("autostart", $0) }
+            ))
+
+            Toggle(L10n.t("hide_dock", language: language), isOn: Binding(
+                get: { c.hideDockIcon },
+                set: { settings.update("hide_dock_icon", $0) }
+            ))
         }
     }
 
-    // MARK: - JSON Section
-
+    @ViewBuilder
     private var jsonSection: some View {
-        settingsSection(title: L10n.t("section_json", language: language)) {
-            toggleRow(L10n.t("json_auto_format", language: language), key: "auto_format_json")
+        Section(L10n.t("section_json", language: language)) {
+            Toggle(L10n.t("json_auto_format", language: language), isOn: Binding(
+                get: { c.autoFormatJson },
+                set: { settings.update("auto_format_json", $0) }
+            ))
 
-            HStack {
-                Text(L10n.t("json_indent", language: language))
-                Spacer()
-                Picker("", selection: Binding(
-                    get: { settings.config.jsonIndent },
-                    set: { settings.update("json_indent", $0) }
-                )) {
-                    Text(L10n.t("indent_2", language: language)).tag(2)
-                    Text(L10n.t("indent_4", language: language)).tag(4)
-                }
-                .frame(width: 120)
+            Picker(L10n.t("json_indent", language: language), selection: Binding(
+                get: { c.jsonIndent },
+                set: { settings.update("json_indent", $0) }
+            )) {
+                Text(L10n.t("indent_2", language: language)).tag(2)
+                Text(L10n.t("indent_4", language: language)).tag(4)
             }
 
             HStack {
                 Text(L10n.t("json_external_tool", language: language))
                 Spacer()
-                Text(settings.config.jsonExternalTool.isEmpty ? "VS Code" : settings.config.jsonExternalTool)
-                    .foregroundColor(.secondary)
+                Text(c.jsonExternalTool.isEmpty ? "VS Code (default)" : (c.jsonExternalTool as NSString).lastPathComponent)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 220, alignment: .trailing)
                 Button(L10n.t("browse", language: language)) {
                     pickingExternalTool = true
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
         }
     }
 
-    // MARK: - HTML Section
-
+    @ViewBuilder
     private var htmlSection: some View {
-        settingsSection(title: L10n.t("section_html", language: language)) {
-            HStack {
-                Text(L10n.t("html_retention", language: language))
-                Spacer()
-                Picker("", selection: Binding(
-                    get: { Int(settings.config.htmlRetentionDays) },
-                    set: { settings.update("html_retention_days", UInt32($0)) }
-                )) {
-                    Text(L10n.t("retention_1d", language: language)).tag(1)
-                    Text(L10n.t("retention_7d", language: language)).tag(7)
-                    Text(L10n.t("retention_15d", language: language)).tag(15)
-                    Text(L10n.t("retention_30d", language: language)).tag(30)
-                    Text(L10n.t("retention_forever", language: language)).tag(0)
-                }
-                .frame(width: 120)
+        Section(L10n.t("section_html", language: language)) {
+            Picker(L10n.t("html_retention", language: language), selection: Binding(
+                get: { Int(c.htmlRetentionDays) },
+                set: { settings.update("html_retention_days", UInt32($0)) }
+            )) {
+                Text(L10n.t("retention_1d", language: language)).tag(1)
+                Text(L10n.t("retention_7d", language: language)).tag(7)
+                Text(L10n.t("retention_15d", language: language)).tag(15)
+                Text(L10n.t("retention_30d", language: language)).tag(30)
+                Text(L10n.t("retention_forever", language: language)).tag(0)
             }
         }
     }
 
-    // MARK: - Image Section
-
+    @ViewBuilder
     private var imageSection: some View {
-        settingsSection(title: L10n.t("section_image", language: language)) {
-            toggleRow(L10n.t("image_auto_save", language: language), key: "image_auto_save")
+        Section(L10n.t("section_image", language: language)) {
+            Toggle(L10n.t("image_auto_save", language: language), isOn: Binding(
+                get: { c.imageAutoSave },
+                set: { settings.update("image_auto_save", $0) }
+            ))
+
+            Toggle(L10n.t("image_use_original_timestamp", language: language), isOn: Binding(
+                get: { c.imageUseOriginalTimestamp },
+                set: { settings.update("image_use_original_timestamp", $0) }
+            ))
 
             HStack {
                 Text(L10n.t("image_save_path", language: language))
                 Spacer()
-                Text(settings.config.imageSavePath.isEmpty ? "~/Desktop/Clipboard" : settings.config.imageSavePath)
-                    .foregroundColor(.secondary)
+                Text(c.imageSavePath.isEmpty ? "~/Desktop/Clipboard" : c.imageSavePath)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 220, alignment: .trailing)
                 Button(L10n.t("browse", language: language)) {
                     pickingImagePath = true
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(L10n.t("image_naming_template", language: language))
-                    Spacer()
-                }
+                Text(L10n.t("image_naming_template", language: language))
                 TextField("", text: Binding(
-                    get: { settings.config.imageNamingTemplate },
+                    get: { c.imageNamingTemplate },
                     set: { settings.update("image_naming_template", $0) }
                 ))
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.caption, design: .monospaced))
-
                 Text(L10n.t("template_vars", language: language))
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    // MARK: - Hotkey Section
-
+    @ViewBuilder
     private var hotkeySection: some View {
-        settingsSection(title: L10n.t("section_hotkey", language: language)) {
-            hotkeyRow(L10n.t("hotkey_main_label", language: language), key: "hotkey_main")
-            hotkeyRow(L10n.t("hotkey_json_label", language: language), key: "hotkey_json_window")
-            hotkeyRow(L10n.t("hotkey_html_label", language: language), key: "hotkey_html_open")
+        Section(L10n.t("section_hotkey", language: language)) {
+            hotkeyRow(L10n.t("hotkey_main_label", language: language), value: c.hotkeyMain)
+            hotkeyRow(L10n.t("hotkey_json_label", language: language), value: c.hotkeyJsonWindow)
+            hotkeyRow(L10n.t("hotkey_html_label", language: language), value: c.hotkeyHtmlOpen)
         }
     }
 
-    // MARK: - Feedback Section
-
+    @ViewBuilder
     private var feedbackSection: some View {
-        settingsSection(title: "") {
-            Button(L10n.t("feedback", language: language)) {
+        Section {
+            Button {
                 let url = URL(string: "mailto:taolux2021@163.com?subject=ClipForge%20Feedback&body=Please%20describe%20your%20feedback%20here.")!
                 NSWorkspace.shared.open(url)
+            } label: {
+                Label(L10n.t("feedback", language: language), systemImage: "envelope")
             }
-            .buttonStyle(.bordered)
+            Text(L10n.t("feedback_hint", language: language))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    // MARK: - Helpers
-
-    private func settingsSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if !title.isEmpty {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.secondary)
-            }
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func toggleRow(_ label: String, key: String) -> some View {
+    @ViewBuilder
+    private func hotkeyRow(_ label: String, value: String) -> some View {
         HStack {
             Text(label)
             Spacer()
-            Toggle("", isOn: Binding(
-                get: {
-                    switch key {
-                    case "autostart": return settings.config.autostart
-                    case "hide_dock_icon": return settings.config.hideDockIcon
-                    case "auto_format_json": return settings.config.autoFormatJson
-                    case "image_auto_save": return settings.config.imageAutoSave
-                    default: return false
-                    }
-                },
-                set: { settings.update(key, $0) }
-            ))
-            .toggleStyle(.switch)
-        }
-    }
-
-    private func hotkeyRow(_ label: String, key: String) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Text(displayHotkey(key))
+            Text(displayHotkey(value))
                 .font(.system(.caption, design: .monospaced))
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(Color.primary.opacity(0.08))
-                .cornerRadius(4)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.primary.opacity(0.08))
+                )
         }
     }
 
-    private func displayHotkey(_ key: String) -> String {
-        let raw: String
-        switch key {
-        case "hotkey_main": raw = settings.config.hotkeyMain
-        case "hotkey_json_window": raw = settings.config.hotkeyJsonWindow
-        case "hotkey_html_open": raw = settings.config.hotkeyHtmlOpen
-        default: raw = ""
-        }
-        // Display: remove Control on Mac, show ⌘⇧C style
-        return raw
+    private func displayHotkey(_ raw: String) -> String {
+        raw
             .replacingOccurrences(of: "CommandOrControl", with: "⌘")
             .replacingOccurrences(of: "Control", with: "⌃")
             .replacingOccurrences(of: "Shift", with: "⇧")

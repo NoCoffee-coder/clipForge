@@ -16,8 +16,8 @@ struct WindowPlacement {
 
     static let edgeMargin: CGFloat = 8
     static let menuBarInset: CGFloat = 25  // macOS menu bar height
-    static let defaultWidth: CGFloat = 560
-    static let defaultHeight: CGFloat = 440
+    static let defaultWidth: CGFloat = 640
+    static let defaultHeight: CGFloat = 480
 
     /// Compute window frame origin (bottom-left in Cocoa coords) for cursor position
     static func compute(cursor: NSPoint, screen: NSScreen, winSize: CGSize) -> NSPoint {

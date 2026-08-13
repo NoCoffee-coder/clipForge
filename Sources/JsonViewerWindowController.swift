@@ -10,6 +10,13 @@ final class JsonViewerWindowController: NSWindowController {
     private let content: String
     private let windowTitle: String
 
+    /// True iff the JSON viewer's search field is currently focused.
+    /// Updated by the view's `onSearchFocusChange` callback. We track
+    /// this explicitly because inspecting `window.firstResponder` is
+    /// unreliable here: the JSON content uses `.textSelection(.enabled)`,
+    /// which also produces an NSTextView when clicked.
+    private var isSearchFieldFocused: Bool = false
+
     init(app: AppDelegate, itemId: Int64, content: String, title: String) {
         self.app = app
         self.itemId = itemId
@@ -51,9 +58,29 @@ final class JsonViewerWindowController: NSWindowController {
                     toolPath: app.settings.config.jsonExternalTool,
                     filePath: filePath
                 )
+            },
+            onSearchFocusChange: { [weak self] focused in
+                self?.isSearchFieldFocused = focused
             }
         )
         window?.contentViewController = NSHostingController(rootView: view)
+
+        // Esc-to-close. We use the view's reported search-field focus
+        // (see `isSearchFieldFocused`) rather than
+        // `window.firstResponder is NSText/NSTextView`: clicking the
+        // JSON content (`.textSelection(.enabled)`) also creates an
+        // NSTextView, which would be misclassified as the search field
+        // and swallow Esc instead of closing the window.
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self,
+                  self.window?.isKeyWindow == true,
+                  event.keyCode == 53 else { return event }
+            if self.isSearchFieldFocused {
+                return event  // let Esc clear the search field
+            }
+            self.close()
+            return nil
+        }
     }
 
     func show() {

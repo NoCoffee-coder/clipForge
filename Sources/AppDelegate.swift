@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Foundation
 import CryptoKit
+import ServiceManagement
 
 // MARK: - App Delegate (Central Coordinator)
 
@@ -63,6 +64,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 9. Start cleanup scheduler
         startCleanupScheduler()
 
+        // 9.5 Apply persisted theme on launch
+        applyTheme(settings.config.theme)
+
         // 10. Listen for settings changes
         NotificationCenter.default.addObserver(
             self,
@@ -70,6 +74,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .settingsUpdated,
             object: nil
         )
+
+        // Debug: auto-show main window after launch when env var is set
+        if ProcessInfo.processInfo.environment["CLIPFORGE_AUTO_SHOW"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                NSLog("[ClipForge:debug] auto-show triggered")
+                self?.showMainWindow()
+                if let w = self?.mainWindowController?.window,
+                   let screen = NSScreen.main {
+                    let frame = w.frame
+                    let visible = screen.visibleFrame
+                    let origin = NSPoint(
+                        x: visible.origin.x + (visible.width - frame.width) / 2,
+                        y: visible.origin.y + (visible.height - frame.height) / 2
+                    )
+                    w.setFrameOrigin(origin)
+                }
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -146,11 +168,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func toggleMainWindow() {
+        // If the window is currently visible, hide it first so the next
+        // show() at the new cursor position feels like a fresh open.
+        // If it's already hidden, just show at the current cursor.
+        // Either way, the user ends up with a window at the current cursor
+        // after a single hotkey press — no need to press twice after moving
+        // the mouse.
         if let ctrl = mainWindowController, ctrl.isVisible {
             ctrl.hide()
-        } else {
-            showMainWindow()
         }
+        showMainWindow()
     }
 
     // MARK: - Settings Window
@@ -184,7 +211,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func openJsonViewer(itemId: Int64) {
         guard let item = db.getItem(id: itemId) else { return }
         jsonViewerCounter += 1
-        let title = "JSON #\(jsonViewerCounter)"
+        // Title must identify WHICH item this viewer is for — a bare
+        // "JSON #1" / "JSON #2" sequence tells the user nothing when they
+        // have several viewers open. We surface THREE things so the user
+        // can always tell whether they're looking at the same record as
+        // before:
+        //   1. The viewer's own counter (so multi-window instances stay
+        //      distinguishable when the user opens several at once).
+        //   2. The DB item id — this is the only TRULY unique identifier
+        //      and lets the user prove "yes, this is the same record" /
+        //      "no, the list re-shifted under me". Two items can share the
+        //      same preview prefix (e.g. several `{"name":"Alice"...`
+        //      rows), so the preview alone is not a reliable identity.
+        //   3. A short snippet of the content's first line, so the user
+        //      can eyeball what they're looking at.
+        let snippet: String = {
+            let source = item.content?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? item.preview ?? ""
+            if source.isEmpty { return "" }
+            let firstLine = source.components(separatedBy: .newlines).first ?? source
+            let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+            let cut = String(trimmed.prefix(60))
+            return cut == trimmed ? cut : cut + "…"
+        }()
+        let title = snippet.isEmpty
+            ? "JSON #\(jsonViewerCounter) · #\(itemId)"
+            : "JSON #\(jsonViewerCounter) · #\(itemId) — \(snippet)"
         let controller = JsonViewerWindowController(
             app: self,
             itemId: itemId,
@@ -221,12 +273,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Update activation policy
         updateActivationPolicy()
 
+        // Apply theme across all windows
+        applyTheme(settings.config.theme)
+
+        // Sync autostart with system
+        applyAutostart(settings.config.autostart)
+
         // Re-register hotkeys
         hotkeys.registerAll(
             mainKey: settings.config.hotkeyMain,
             jsonKey: settings.config.hotkeyJsonWindow,
             htmlKey: settings.config.hotkeyHtmlOpen
         )
+    }
+
+    // MARK: - Theme
+
+    private func applyTheme(_ theme: String) {
+        let appearance: NSAppearance?
+        switch theme {
+        case "light": appearance = NSAppearance(named: .aqua)
+        case "dark":  appearance = NSAppearance(named: .darkAqua)
+        default:      appearance = nil  // follow system
+        }
+        NSApp.appearance = appearance
+        for window in NSApp.windows {
+            window.appearance = appearance
+        }
+    }
+
+    // MARK: - Autostart (macOS 13+)
+
+    private func applyAutostart(_ enabled: Bool) {
+        let service = SMAppService.mainApp
+        do {
+            if enabled {
+                if service.status != .enabled {
+                    try service.register()
+                }
+            } else {
+                if service.status == .enabled {
+                    try service.unregister()
+                }
+            }
+        } catch {
+            NSLog("ClipForge: autostart toggle failed: \(error)")
+        }
     }
 
     // MARK: - Quit
@@ -266,9 +358,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileName = String(hash.prefix(16)) + ".png"
         let filePath = imagesDirectory().appendingPathComponent(fileName).path
 
-        // Save image
+        // Save image — extract real pixel dimensions
+        var imageWidth: Int32? = nil
+        var imageHeight: Int32? = nil
         if let image = NSImage(data: imageData),
            let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            imageWidth = Int32(cgImage.width)
+            imageHeight = Int32(cgImage.height)
             let rep = NSBitmapImageRep(cgImage: cgImage)
             if let pngData = rep.representation(using: .png, properties: [:]) {
                 try? pngData.write(to: URL(fileURLWithPath: filePath))
@@ -280,8 +376,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         db.registerImage(ImageAsset(
             filePath: filePath,
             hash: hash,
-            width: Int32(imageData.count), // approximate
-            height: nil,
+            width: imageWidth,
+            height: imageHeight,
             byteSize: Int64(imageData.count),
             createdAt: Int64(Date().timeIntervalSince1970 * 1000)
         ))
@@ -300,11 +396,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Auto-save if enabled
         if settings.config.imageAutoSave && !settings.config.imageSavePath.isEmpty {
+            // File timestamp: "now" by default, or the clipboard item's
+            // original copy time when the user opted in via settings.
+            let useOriginal = settings.config.imageUseOriginalTimestamp
+            let fileTimestamp: Date = {
+                if useOriginal, let stored = db.getItem(id: id) {
+                    return Date(timeIntervalSince1970: TimeInterval(stored.createdAt) / 1000)
+                }
+                return Date()
+            }()
             _ = try? ImageActions.autoSaveImage(
                 source: filePath,
                 targetDir: settings.config.imageSavePath,
                 template: settings.config.imageNamingTemplate,
-                sourceApp: sourceApp
+                sourceApp: sourceApp,
+                fileTimestamp: fileTimestamp
             )
         }
 
@@ -380,9 +486,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dialog.title = L10n.t("save_image", language: settings.config.language)
         dialog.nameFieldStringValue = "image.png"
         dialog.allowedContentTypes = [.png, .jpeg]
+        // The popup window is at .floating level, which can hide the save
+        // panel by default. Lift the panel above it so the user can see
+        // and interact with the dialog.
+        dialog.level = .popUpMenu
+
+        // Remember last save directory (per PRD #11)
+        let lastDir = UserDefaults.standard.string(forKey: "lastImageSaveDir")
+            .map { URL(fileURLWithPath: $0) }
+        if let lastDir = lastDir, FileManager.default.fileExists(atPath: lastDir.path) {
+            dialog.directoryURL = lastDir
+        }
+
+        let useOriginal = settings.config.imageUseOriginalTimestamp
+        let originalDate = Date(timeIntervalSince1970: TimeInterval(item.createdAt) / 1000)
+
         dialog.begin { [weak self] result in
             guard result == .OK, let url = dialog.url, let self = self else { return }
-            _ = try? ImageActions.saveImage(source: sourcePath, dest: url.path)
+            UserDefaults.standard.set(url.deletingLastPathComponent().path, forKey: "lastImageSaveDir")
+            let ts = useOriginal ? originalDate : Date()
+            _ = try? ImageActions.saveImage(source: sourcePath, dest: url.path, fileTimestamp: ts)
         }
     }
 

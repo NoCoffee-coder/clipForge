@@ -8,6 +8,9 @@ final class AppConfig: Codable {
     var htmlRetentionDays: UInt32 = 7
     var imageAutoSave: Bool = false
     var imageSavePath: String = ""
+    /// When saving an image, use the clipboard item's original copy time
+    /// as the saved file's modification/creation time, instead of "now".
+    var imageUseOriginalTimestamp: Bool = false
     var imageNamingTemplate: String = "{date}_{app}_{n}"
     var htmlSavePath: String = ""
     var jsonIndent: Int = 2
@@ -26,6 +29,7 @@ final class AppConfig: Codable {
         case htmlRetentionDays = "html_retention_days"
         case imageAutoSave = "image_auto_save"
         case imageSavePath = "image_save_path"
+        case imageUseOriginalTimestamp = "image_use_original_timestamp"
         case imageNamingTemplate = "image_naming_template"
         case htmlSavePath = "html_save_path"
         case jsonIndent = "json_indent"
@@ -73,6 +77,8 @@ final class AppConfig: Codable {
             if let v = value as? Bool { imageAutoSave = v }
         case "image_save_path":
             if let v = value as? String { imageSavePath = v }
+        case "image_use_original_timestamp":
+            if let v = value as? Bool { imageUseOriginalTimestamp = v }
         case "image_naming_template":
             if let v = value as? String { imageNamingTemplate = v }
         case "html_save_path":

@@ -49,6 +49,8 @@ enum L10n {
         "browse": ("浏览…", "Browse…"),
         "html_retention": ("临时文件保留天数", "HTML retention days"),
         "image_auto_save": ("自动保存到本地", "Auto-save images"),
+        "image_use_original_timestamp": ("使用原图复制时间作为文件时间",
+                                        "Use original copy time for saved file"),
         "image_save_path": ("保存路径", "Save path"),
         "image_naming_template": ("命名模板", "Naming template"),
         "template_vars": ("可用变量：{date} {time} {app} {n} {hash}",
@@ -57,6 +59,8 @@ enum L10n {
         "hotkey_json_label": ("JSON 独立窗口", "JSON viewer window"),
         "hotkey_html_label": ("HTML 浏览器打开", "Open HTML in browser"),
         "feedback": ("反馈", "Feedback"),
+        "feedback_hint": ("如果点击按钮没有反应，请发送邮件到 taolux2021@163.com",
+                          "If the button doesn't work, email taolux2021@163.com"),
         "retention_1d": ("1 天", "1 day"),
         "retention_7d": ("7 天", "7 days"),
         "retention_15d": ("15 天", "15 days"),
@@ -64,6 +68,23 @@ enum L10n {
         "retention_forever": ("永久", "Forever"),
         "indent_2": ("2 空格", "2 spaces"),
         "indent_4": ("4 空格", "4 spaces"),
+
+        // Type filter
+        "filter_all": ("全部", "All"),
+
+        // Keyboard hints (status bar)
+        "hint_select": ("↑↓ 选择", "↑↓ select"),
+        "hint_paste": ("⏎ 粘贴", "⏎ paste"),
+        "hint_pin": ("⌘P 置顶", "⌘P pin"),
+
+        // Search
+        "clear": ("清空", "Clear"),
+
+        // Preview
+        "preview_empty": ("选一条记录预览", "Select an item to preview"),
+
+        // Common
+        "back": ("返回", "Back"),
     ]
 
     static func t(_ key: String, language: String) -> String {

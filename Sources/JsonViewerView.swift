@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - JSON Independent Viewer
@@ -8,128 +9,285 @@ struct JsonViewerView: View {
     let title: String
     let onClose: () -> Void
     let onOpenExternal: (String) -> Void
+    let onSearchFocusChange: (Bool) -> Void
 
-    @State private var indent: Int = 2
+    @State private var indentMode: Int = 2   // 2 spaces, 4 spaces, 0 = tab
     @State private var searchText: String = ""
     @State private var displayContent: String = ""
+    @State private var renderedLines: [AttributedString] = []
+    @FocusState private var searchFieldFocused: Bool
+
+    /// Single source of truth for the code font. The gutter (line numbers)
+    /// and the content MUST use the same font + size so their line heights
+    /// match — that's the whole reason a per-row HStack aligns the gutter
+    /// to the content.
+    private static let mono: Font = .system(size: 12, design: .monospaced)
 
     var body: some View {
         VStack(spacing: 0) {
-            // Toolbar
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+            toolbar
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.bar)
 
-                Spacer()
+            searchBar
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
 
-                // Indent toggle
-                Picker("", selection: $indent) {
-                    Text("2").tag(2)
-                    Text("4").tag(4)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 80)
-                .onChange(of: indent) { _ in reformat() }
+            Divider().opacity(0.3)
 
-                Button("Minify") { minify() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                Button("Copy") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(displayContent, forType: .string)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button("External") {
-                    writeTempFileAndOpen()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            // Search
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                TextField("Search…", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color.primary.opacity(0.06))
-            .cornerRadius(6)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 6)
-
-            // JSON content with line numbers
-            HStack(spacing: 0) {
-                // Line numbers
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .trailing, spacing: 0) {
-                        ForEach(1...max(1, displayContent.components(separatedBy: .newlines).count), id: \.self) { n in
-                            Text("\(n)")
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundColor(.secondary)
-                                .frame(minWidth: 30, alignment: .trailing)
-                        }
-                    }
-                    .padding(.leading, 8)
-                }
-                .frame(width: 40)
-
-                Divider()
-
-                // Content
-                ScrollView([.horizontal, .vertical]) {
-                    Text(filteredContent)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .padding(8)
-                        .textSelection(.enabled)
-                }
-            }
+            contentArea
         }
+        .background(.background)
         .onAppear {
             reformat()
+            rebuildLines()
+            onSearchFocusChange(searchFieldFocused)
+        }
+        .onChange(of: searchText) { _ in rebuildLines() }
+        .onChange(of: displayContent) { _ in rebuildLines() }
+        .onChange(of: searchFieldFocused) { focused in
+            onSearchFocusChange(focused)
         }
     }
 
-    private var filteredContent: String {
-        guard !searchText.isEmpty else { return displayContent }
-        return displayContent.components(separatedBy: .newlines)
-            .filter { $0.localizedCaseInsensitiveContains(searchText) }
-            .joined(separator: "\n")
+    // MARK: - Toolbar
+
+    private var toolbar: some View {
+        HStack(spacing: 6) {
+            indentButton("2", mode: 2)
+            indentButton("4", mode: 4)
+            indentButton("Tab", mode: 0)
+            vDivider()
+            toolButton(label: "Minify", systemImage: "arrow.down.right.and.arrow.up.left", action: minify)
+            vDivider()
+            toolButton(label: "Copy", systemImage: "doc.on.doc", action: copyToClipboard)
+            toolButton(label: "External", systemImage: "arrow.up.forward.app", action: openExternal)
+            Spacer(minLength: 8)
+            toolButton(label: "Close", systemImage: "xmark", action: onClose)
+        }
+    }
+
+    private func indentButton(_ label: String, mode: Int) -> some View {
+        let isActive = (indentMode == mode)
+        return Button(action: { setIndent(mode) }) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .frame(minWidth: 28, minHeight: 22)
+                .padding(.horizontal, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(isActive ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.05))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(isActive ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 0.5)
+                )
+                .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .help("\(label) space indent")
+    }
+
+    private func toolButton(label: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 10, weight: .medium))
+                Text(label)
+                    .font(.system(size: 11))
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+    }
+
+    private func vDivider() -> some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.1))
+            .frame(width: 1, height: 14)
+    }
+
+    // MARK: - Search
+
+    private var searchBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+            TextField("Search…", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($searchFieldFocused)
+            if !searchText.isEmpty {
+                Button(action: { searchText = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .help("Clear")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(0.05))
+        )
+    }
+
+    // MARK: - Content
+
+    private var contentArea: some View {
+        // Single ScrollView wrapping a column of per-row HStacks. Each row
+        // pairs the gutter number with the highlighted line text inside the
+        // same HStack, so they share the same row height and baselines by
+        // construction — no chance of the gutter drifting out of sync with
+        // the content, and no need for a second ScrollView.
+        // `.textSelection(.enabled)` on the content Text wraps it in an
+        // NSTextView, so text is selectable and copyable.
+        ScrollView([.horizontal, .vertical]) {
+            VStack(alignment: .leading, spacing: 0) {
+                if renderedLines.isEmpty {
+                    Text(displayContent.isEmpty ? "(empty)" : "(no matches)")
+                        .font(Self.mono)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(Array(renderedLines.enumerated()), id: \.offset) { idx, line in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("\(idx + 1)")
+                                .font(Self.mono)
+                                .foregroundStyle(.tertiary)
+                                .frame(width: 40, alignment: .trailing)
+                            Text(line)
+                                .font(Self.mono)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 1)
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+        }
+    }
+
+    // MARK: - Rendering
+
+    private func rebuildLines() {
+        let rawLines = displayContent.components(separatedBy: "\n")
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtered: [String]
+        if q.isEmpty {
+            filtered = rawLines
+        } else {
+            filtered = rawLines.filter { $0.localizedCaseInsensitiveContains(q) }
+        }
+        renderedLines = filtered.map { highlight($0) }
+    }
+
+    private func highlight(_ s: String) -> AttributedString {
+        var a = AttributedString(s)
+        let ns = NSRange(s.startIndex..., in: s)
+        let patterns: [(String, NSColor)] = [
+            (#"(".*?")\s*:"#,             .systemPurple),  // keys
+            (#":\s*(".*?")"#,             .systemGreen),   // string values
+            (#":\s*(-?\d+\.?\d*)"#,       .systemOrange),  // numbers
+            (#":\s*(true|false|null)\b"#, .systemRed),     // literals
+        ]
+        for (pat, color) in patterns {
+            guard let re = try? NSRegularExpression(pattern: pat) else { continue }
+            for m in re.matches(in: s, range: ns) {
+                applyColor(&a, source: s, range: m.range(at: 1), color: color)
+            }
+        }
+        return a
+    }
+
+    private func applyColor(_ a: inout AttributedString, source: String, range: NSRange, color: NSColor) {
+        guard let r = Range(range, in: source),
+              let lo = AttributedString.Index(r.lowerBound, within: a),
+              let hi = AttributedString.Index(r.upperBound, within: a) else { return }
+        a[lo..<hi].foregroundColor = Color(nsColor: color)
+    }
+
+    // MARK: - Actions
+
+    private func setIndent(_ mode: Int) {
+        indentMode = mode
+        reformat()
     }
 
     private func reformat() {
-        if let result = try? JsonActions.format(content, indent: indent) {
-            displayContent = result.formatted
-        } else {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+              let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .fragmentsAllowed]),
+              var s = String(data: d, encoding: .utf8) else {
             displayContent = content
+            return
         }
+        switch indentMode {
+        case 4:
+            s = expandIndent(s, from: 2, to: 4)
+        case 0:
+            // JSONSerialization emits 2-space indent; swap each 2-space run
+            // for a tab.
+            s = s.replacingOccurrences(of: "  ", with: "\t")
+        default:
+            break
+        }
+        displayContent = s
+    }
+
+    private func expandIndent(_ s: String, from: Int, to: Int) -> String {
+        // Walk leading spaces of each line; replace every `from`-space
+        // block with `to` spaces. Anything past the leading run is left
+        // untouched.
+        let lines = s.components(separatedBy: "\n")
+        return lines.map { line in
+            var count = 0
+            for ch in line {
+                if ch == " " { count += 1 } else { break }
+            }
+            guard count > 0 else { return line }
+            let levels = count / from
+            return String(repeating: " ", count: levels * to) + String(line.dropFirst(count))
+        }.joined(separator: "\n")
     }
 
     private func minify() {
-        if let minified = try? JsonActions.minify(content) {
-            displayContent = minified
-        }
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+              let d = try? JSONSerialization.data(withJSONObject: obj, options: [.fragmentsAllowed]),
+              let s = String(data: d, encoding: .utf8) else { return }
+        displayContent = s
     }
 
-    private func writeTempFileAndOpen() {
-        let tempDir = FileManager.default.temporaryDirectory
-        let tempFile = tempDir.appendingPathComponent("clipforge-\(itemId).json")
-        try? displayContent.write(to: tempFile, atomically: true, encoding: .utf8)
-        onOpenExternal(tempFile.path)
+    private func copyToClipboard() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(displayContent, forType: .string)
+    }
+
+    private func openExternal() {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClipForge", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        let file = tmpDir.appendingPathComponent("json-\(itemId).json")
+        try? displayContent.data(using: .utf8)?.write(to: file)
+        onOpenExternal(file.path)
     }
 }
