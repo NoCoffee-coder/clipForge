@@ -3,9 +3,33 @@
 <plist version="1.0">
 <dict>
 	<key>files</key>
-	<dict/>
+	<dict>
+		<key>Resources/AppIcon.icns</key>
+		<data>
+		8//d1zXB2IwaM9FpHSWj+ta/arE=
+		</data>
+		<key>Resources/menu_icon.png</key>
+		<data>
+		kBjZT52yLcB28Tvk+homichIFEE=
+		</data>
+	</dict>
 	<key>files2</key>
-	<dict/>
+	<dict>
+		<key>Resources/AppIcon.icns</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ETGyUaAzIbgE3jxGMukGWlgW/vgoE6/tEp2TbHQvY6k=
+			</data>
+		</dict>
+		<key>Resources/menu_icon.png</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			3Nvk/xYmUJL8Z022IvFhBViph6JcIuSrsmhauYBbvP8=
+			</data>
+		</dict>
+	</dict>
 	<key>rules</key>
 	<dict>
 		<key>^Resources/</key>

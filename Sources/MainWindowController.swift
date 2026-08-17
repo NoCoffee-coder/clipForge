@@ -18,6 +18,11 @@ final class MainWindowController: NSWindowController {
     private var lastBlurTime: Date?
     private var keyMonitor: Any?
     private var mouseMonitor: Any?
+    /// True while the user is dragging the borderless window's resize
+    /// region. The system-owned resize loop both consumes the corner
+    /// mouse-down (so it can surface in the GLOBAL monitor) and can
+    /// momentarily resign key - both would otherwise hide the panel.
+    private var isLiveResizing = false
 
     var isVisible: Bool {
         window?.isVisible ?? false
@@ -56,6 +61,7 @@ final class MainWindowController: NSWindowController {
         setupKeyMonitor()
         setupMouseMonitor()
         setupBlurMonitor()
+        setupResizeMonitors()
     }
 
     @available(*, unavailable)
@@ -197,12 +203,39 @@ final class MainWindowController: NSWindowController {
         ) { [weak self] event in
             guard let self = self,
                   let window = self.window,
-                  window.isVisible else { return }
+                  window.isVisible,
+                  !self.isLiveResizing else { return }
             let mouseGlobal = NSEvent.mouseLocation
-            if !window.frame.contains(mouseGlobal) {
+            // Inflated hit test: clicks aimed at the borderless window's
+            // resize border can land a few px outside the frame (cursor
+            // hotspot vs. frame edge). Treat those as "inside" instead of
+            // closing the panel.
+            let hitFrame = window.frame.insetBy(dx: -8, dy: -8)
+            if !hitFrame.contains(mouseGlobal) {
                 self.hide()
             }
         }
+    }
+
+    // MARK: - Live-resize Monitor
+
+    /// Suppress hide() while the user drags the bottom-right resize region.
+    private func setupResizeMonitors() {
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(resizeStarted),
+            name: NSWindow.willStartLiveResizeNotification, object: window
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(resizeEnded),
+            name: NSWindow.didEndLiveResizeNotification, object: window
+        )
+    }
+
+    @objc private func resizeStarted() { isLiveResizing = true }
+    @objc private func resizeEnded() {
+        isLiveResizing = false
+        // Re-assert key after the resize loop; the window may have lost it.
+        if window?.isVisible == true { window?.makeKey() }
     }
 
     // MARK: - Blur Monitor (non-click focus loss, e.g. Cmd+Tab)
@@ -223,6 +256,7 @@ final class MainWindowController: NSWindowController {
             guard let self = self else { return }
             // Only hide if (a) the same blur cycle, and (b) we haven't regained key
             guard self.lastBlurTime == blurTime,
+                  self.isLiveResizing == false,
                   self.window?.isKeyWindow == false else { return }
             self.hide()
         }

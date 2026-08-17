@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Data stores
     var mainStore: MainPanelStore!
-    private var statusItem: NSStatusItem!
+    private var statusItem: NSStatusItem?
 
     // JSON viewer counter (for multi-instance)
     private var jsonViewerCounter: Int = 0
@@ -46,8 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 5. Set activation policy (hide dock icon)
         updateActivationPolicy()
 
-        // 6. Setup menu bar
-        setupStatusBar()
+        // 6. Setup menu bar (unless hidden in settings)
+        updateStatusBarVisibility()
 
         // 7. Start clipboard monitor
         clipboardMonitor = ClipboardMonitor(app: self)
@@ -119,15 +119,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateActivationPolicy() {
         let policy: NSApplication.ActivationPolicy = settings.config.hideDockIcon ? .accessory : .regular
+        guard NSApp.activationPolicy() != policy else { return }
+        // Snapshot visible windows first: switching to .accessory implicitly
+        // deactivates the app and macOS orders out ALL our windows. The Dock
+        // icon toggle must only affect the icon, so bring them right back.
+        let visibleWindows = NSApp.windows.filter { $0.isVisible }
         NSApp.setActivationPolicy(policy)
+        NSApp.activate(ignoringOtherApps: true)
+        for window in visibleWindows {
+            window.orderFrontRegardless()
+        }
     }
 
     // MARK: - Status Bar
 
+    /// Creates or removes the status item to match the
+    /// `hide_menu_bar_icon` setting. Called on launch and on every
+    /// settings change.
+    private func updateStatusBarVisibility() {
+        if settings.config.hideMenuBarIcon {
+            if let item = statusItem {
+                NSStatusBar.system.removeStatusItem(item)
+                statusItem = nil
+            }
+        } else if statusItem == nil {
+            setupStatusBar()
+        }
+    }
+
     private func setupStatusBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = statusItem.button {
-            button.title = "CF"
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem?.button {
+            // Menu bar icon: resource/menu_icon.png (copied into the
+            // bundle by build.sh). Falls back to the app icon if missing.
+            let icon = Bundle.main.image(forResource: "menu_icon")
+                ?? NSImage(named: NSImage.applicationIconName)
+            if let size = icon?.size, size.height != 0 {
+                // Menu-bar height is ~18pt; keep the icon's aspect ratio.
+                icon?.size = NSSize(width: 18 * size.width / size.height, height: 18)
+            }
+            button.image = icon
             button.toolTip = "ClipForge"
             button.action = #selector(statusBarClicked)
             button.target = self
@@ -140,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func rebuildTrayMenu() {
+        guard let statusItem = statusItem else { return }
         let menu = NSMenu()
         let lang = settings.config.language
 
@@ -272,6 +304,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Update activation policy
         updateActivationPolicy()
+
+        // Show/hide menu bar icon
+        updateStatusBarVisibility()
 
         // Apply theme across all windows
         applyTheme(settings.config.theme)

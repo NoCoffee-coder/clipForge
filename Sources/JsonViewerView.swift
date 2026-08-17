@@ -154,32 +154,52 @@ struct JsonViewerView: View {
         // the content, and no need for a second ScrollView.
         // `.textSelection(.enabled)` on the content Text wraps it in an
         // NSTextView, so text is selectable and copyable.
-        ScrollView([.horizontal, .vertical]) {
-            VStack(alignment: .leading, spacing: 0) {
-                if renderedLines.isEmpty {
-                    Text(displayContent.isEmpty ? "(empty)" : "(no matches)")
-                        .font(Self.mono)
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                } else {
-                    ForEach(Array(renderedLines.enumerated()), id: \.offset) { idx, line in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("\(idx + 1)")
+        GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ScrollView([.horizontal, .vertical]) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if renderedLines.isEmpty {
+                            Text(displayContent.isEmpty ? "(empty)" : "(no matches)")
                                 .font(Self.mono)
                                 .foregroundStyle(.tertiary)
-                                .frame(width: 40, alignment: .trailing)
-                            Text(line)
-                                .font(Self.mono)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                        } else {
+                            ForEach(Array(renderedLines.enumerated()), id: \.offset) { idx, line in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text("\(idx + 1)")
+                                        .font(Self.mono)
+                                        .foregroundStyle(.tertiary)
+                                        .frame(width: 40, alignment: .trailing)
+                                    Text(line)
+                                        .font(Self.mono)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 1)
+                                .id(idx)
+                            }
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 1)
+                    }
+                    // A horizontal ScrollView proposes nil width, so
+                    // maxWidth: .infinity collapses to the content's ideal
+                    // width and the column gets centered when the window is
+                    // wider. Pin minWidth to the actual viewport width so the
+                    // gutter hugs the left edge; long lines still overflow
+                    // into horizontal scrolling.
+                    .frame(minWidth: geo.size.width, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+                }
+                .onAppear {
+                    // macOS SwiftUI ScrollView can land mid/bottom content on
+                    // first layout; pin to the first line once rows exist.
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(0, anchor: .topLeading)
                     }
                 }
             }
-            .padding(.vertical, 6)
         }
     }
 

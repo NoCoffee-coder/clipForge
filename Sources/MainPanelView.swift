@@ -85,6 +85,7 @@ struct MainPanelView: View {
         .frame(minWidth: 480, idealWidth: 640, maxWidth: .infinity,
                minHeight: 360, idealHeight: 480, maxHeight: .infinity)
         .background(panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .compositingGroup()
         .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 8)
         .onAppear {
@@ -270,6 +271,8 @@ struct StatusbarView: View {
     let itemCount: Int
     let language: String
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         HStack(spacing: 12) {
             Text(L10n.t("total_count", language: language, itemCount))
@@ -291,7 +294,8 @@ struct StatusbarView: View {
     }
 
     private func hint(_ s: String) -> some View {
+        // Whiter in dark mode (per request); unchanged in light mode.
         Text(s)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(colorScheme == .dark ? .secondary : .tertiary)
     }
 }

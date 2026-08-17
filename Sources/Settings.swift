@@ -23,6 +23,7 @@ final class AppConfig: Codable {
     var autoFormatJson: Bool = true
     var autostart: Bool = false
     var hideDockIcon: Bool = true
+    var hideMenuBarIcon: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case storageLimit = "storage_limit"
@@ -41,6 +42,7 @@ final class AppConfig: Codable {
         case autoFormatJson = "auto_format_json"
         case autostart
         case hideDockIcon = "hide_dock_icon"
+        case hideMenuBarIcon = "hide_menu_bar_icon"
     }
 
     static let `default` = AppConfig()
@@ -103,6 +105,8 @@ final class AppConfig: Codable {
             if let v = value as? Bool { autostart = v }
         case "hide_dock_icon":
             if let v = value as? Bool { hideDockIcon = v }
+        case "hide_menu_bar_icon":
+            if let v = value as? Bool { hideMenuBarIcon = v }
         default:
             break
         }

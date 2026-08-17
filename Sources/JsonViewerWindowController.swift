@@ -32,6 +32,14 @@ final class JsonViewerWindowController: NSWindowController {
         window.title = title
         window.minSize = NSSize(width: 400, height: 300)
         window.center()
+        // Default size = half the screen's visible frame.
+        if let visible = (window.screen ?? NSScreen.main)?.visibleFrame {
+            window.setContentSize(NSSize(
+                width: visible.width / 2,
+                height: visible.height / 2
+            ))
+            window.center()
+        }
         window.isReleasedWhenClosed = false
 
         super.init(window: window)

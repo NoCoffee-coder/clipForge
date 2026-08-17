@@ -79,6 +79,11 @@ struct SettingsView: View {
                 get: { c.hideDockIcon },
                 set: { settings.update("hide_dock_icon", $0) }
             ))
+
+            Toggle(L10n.t("hide_menu_bar_icon", language: language), isOn: Binding(
+                get: { c.hideMenuBarIcon },
+                set: { settings.update("hide_menu_bar_icon", $0) }
+            ))
         }
     }
 
@@ -202,23 +207,35 @@ struct SettingsView: View {
         HStack {
             Text(label)
             Spacer()
-            Text(displayHotkey(value))
-                .font(.system(.caption, design: .monospaced))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.primary.opacity(0.08))
-                )
+            // Each key renders as its own keycap icon (bigger glyphs,
+            // visible spacing between them) instead of one crammed badge.
+            HStack(spacing: 6) {
+                ForEach(Array(hotkeyTokens(value).enumerated()), id: \.offset) { _, token in
+                    Text(token)
+                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                        .frame(minWidth: 26, minHeight: 26)
+                        .padding(.horizontal, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.primary.opacity(0.08))
+                        )
+                }
+            }
         }
     }
 
-    private func displayHotkey(_ raw: String) -> String {
-        raw
-            .replacingOccurrences(of: "CommandOrControl", with: "⌘")
-            .replacingOccurrences(of: "Control", with: "⌃")
-            .replacingOccurrences(of: "Shift", with: "⇧")
-            .replacingOccurrences(of: "Alt", with: "⌥")
-            .replacingOccurrences(of: "+", with: "")
+    /// Splits a raw hotkey spec (e.g. "CommandOrControl+Shift+C") into
+    /// per-key glyph tokens (["⌘", "⇧", "C"]) so each key can render as a
+    /// separate keycap icon.
+    private func hotkeyTokens(_ raw: String) -> [String] {
+        raw.split(separator: "+").map { part in
+            switch String(part) {
+            case "CommandOrControl": return "⌘"
+            case "Control": return "⌃"
+            case "Shift": return "⇧"
+            case "Alt": return "⌥"
+            default: return String(part).uppercased()
+            }
+        }
     }
 }

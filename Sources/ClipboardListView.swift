@@ -76,6 +76,20 @@ struct ClipboardItemRowView: View {
         HStack(spacing: 8) {
             // Type icon — SF Symbol in a colored capsule (replaces single-letter
             // tag, which looked blocky next to a real text preview).
+            if contentType == .image, let path = item.imagePath,
+               let nsImage = NSImage(contentsOfFile: path) {
+                // Real thumbnail instead of the "Image" placeholder text.
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 22, height: 22)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+
+                Text(fileSizeString(path))
+                    .font(.system(size: 13, weight: isSelected ? .bold : .medium))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                    .lineLimit(1)
+            } else {
             Image(systemName: contentType.systemImage)
                 .font(.system(size: 11, weight: .semibold))
                 .frame(width: 22, height: 22)
@@ -90,6 +104,7 @@ struct ClipboardItemRowView: View {
                 .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+            }
 
             Spacer(minLength: 0)
 
@@ -160,6 +175,14 @@ struct ClipboardItemRowView: View {
         if isSelected { return Color.accentColor.opacity(0.18) }
         if isHovered { return Color.primary.opacity(0.05) }
         return .clear
+    }
+
+    private func fileSizeString(_ path: String) -> String {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? Int else { return "Image" }
+        let kb = Double(size) / 1024
+        if kb > 1024 { return String(format: "%.1f MB", kb / 1024) }
+        return String(format: "%.0f KB", kb)
     }
 }
 

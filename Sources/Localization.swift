@@ -43,6 +43,7 @@ enum L10n {
         "language": ("语言", "Language"),
         "autostart": ("开机自启", "Launch at login"),
         "hide_dock": ("隐藏 Dock 图标", "Hide Dock icon"),
+        "hide_menu_bar_icon": ("隐藏菜单栏图标", "Hide menu bar icon"),
         "json_auto_format": ("自动格式化 JSON", "Auto-format JSON"),
         "json_indent": ("缩进", "Indent"),
         "json_external_tool": ("外部 JSON 工具", "External JSON tool"),
