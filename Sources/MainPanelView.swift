@@ -20,72 +20,113 @@ struct MainPanelView: View {
     private var items: [ClipboardItem] { store.items }
     private var selectedItem: ClipboardItem? { store.currentSelection }
 
+    /// Hairline border color for the panel's rounded edge. Inverts with
+    /// the active appearance so the outline stays readable in both light
+    /// and dark themes without being heavy enough to compete with the
+    /// window's own drop shadow.
+    private var borderColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.22)
+            : Color.black.opacity(0.18)
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Title bar — slim, translucent, integrated with the panel
-            titleBar
+        ZStack {
+            // Full-rect transparent back layer. The four corner pixels of
+            // the window live OUTSIDE the rounded clip of the inner
+            // content, so they would otherwise show whatever opaque
+            // surface sits underneath the SwiftUI view (in practice, the
+            // gray drawn by `_NSHostingView`, which ignores
+            // `view.layer.backgroundColor = .clear`). Putting `Color.clear`
+            // here as a sibling (not a `.background`, which gets
+            // pulled into the clip) ensures SwiftUI explicitly paints
+            // those corner pixels with alpha 0, so they composite
+            // through to the desktop instead of leaking gray. `ZStack`
+            // is not affected by the inner `clipShape`, so the clear
+            // reaches all four corners.
+            Color.clear
 
-            // Search + type filter
-            VStack(spacing: 6) {
-                SearchBarView(
-                    query: Binding(
-                        get: { store.searchQuery },
-                        set: { store.search($0) }
-                    ),
-                    focus: $searchFocused,
-                    language: language
-                )
+            VStack(spacing: 0) {
+                // Title bar — slim, translucent, integrated with the panel
+                titleBar
 
-                TypeFilterBar(
-                    selected: store.typeFilter,
-                    language: language,
-                    onSelect: { store.setTypeFilter($0) }
-                )
+                // Search + type filter
+                VStack(spacing: 6) {
+                    SearchBarView(
+                        query: Binding(
+                            get: { store.searchQuery },
+                            set: { store.search($0) }
+                        ),
+                        focus: $searchFocused,
+                        language: language
+                    )
+
+                    TypeFilterBar(
+                        selected: store.typeFilter,
+                        language: language,
+                        onSelect: { store.setTypeFilter($0) }
+                    )
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+
+                // Content: list + preview
+                HStack(spacing: 0) {
+                    ClipboardListView(
+                        items: items,
+                        selectedIndex: store.selectedIndex,
+                        hoveredIndex: store.hoveredIndex,
+                        language: language,
+                        onSelect: { idx in store.selectedIndex = idx },
+                        onHover: { idx in store.hoveredIndex = idx },
+                        onCopy: { idx in
+                            store.copyItem(at: idx)
+                            onClose()
+                        },
+                        onPin: { idx in store.togglePin(at: idx) },
+                        onDelete: { idx in store.deleteItem(at: idx) },
+                        onOpenJson: { item in onOpenJsonViewer(item.id) },
+                        onOpenHtml: { item in
+                            if let content = item.content { onOpenHtml(content) }
+                        },
+                        onSaveImage: { item in onSaveImage(item) }
+                    )
+                    .frame(width: 320)
+
+                    Divider()
+                        .opacity(0.3)
+
+                    PreviewPaneView(item: selectedItem, language: language)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                // Status bar — keyboard hints, always visible
+                StatusbarView(itemCount: items.count, language: language)
             }
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-
-            // Content: list + preview
-            HStack(spacing: 0) {
-                ClipboardListView(
-                    items: items,
-                    selectedIndex: store.selectedIndex,
-                    hoveredIndex: store.hoveredIndex,
-                    language: language,
-                    onSelect: { idx in store.selectedIndex = idx },
-                    onHover: { idx in store.hoveredIndex = idx },
-                    onCopy: { idx in
-                        store.copyItem(at: idx)
-                        onClose()
-                    },
-                    onPin: { idx in store.togglePin(at: idx) },
-                    onDelete: { idx in store.deleteItem(at: idx) },
-                    onOpenJson: { item in onOpenJsonViewer(item.id) },
-                    onOpenHtml: { item in
-                        if let content = item.content { onOpenHtml(content) }
-                    },
-                    onSaveImage: { item in onSaveImage(item) }
-                )
-                .frame(width: 320)
-
-                Divider()
-                    .opacity(0.3)
-
-                PreviewPaneView(item: selectedItem, language: language)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            // Status bar — keyboard hints, always visible
-            StatusbarView(itemCount: items.count, language: language)
+            // Rounded fill for the panel surface. `panelBackground` is a
+            // RoundedRectangle.fill, so it only paints inside the rounded
+            // path (corners are already handled by the ZStack's
+            // `Color.clear` back layer).
+            .background(panelBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            // Hairline rounded border that follows the clipped edge.
+            // Drawn as an overlay (not inside the clip) so the full 1pt
+            // stroke sits on the rounded edge instead of being
+            // half-eaten by `clipShape`. The color inverts with the
+            // appearance (see `borderColor`) to stay legible in both
+            // light and dark themes and help the panel read as a
+            // distinct surface against the desktop.
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(borderColor, lineWidth: 1)
+            )
         }
         // Flexible frame: respects window resize via NSWindow.setContentSize.
         // The previous hard-coded 640×480 prevented setContentSize from
         // taking effect because SwiftUI treated it as a hard layout constraint.
         .frame(minWidth: 480, idealWidth: 640, maxWidth: .infinity,
                minHeight: 360, idealHeight: 480, maxHeight: .infinity)
-        .background(panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .compositingGroup()
         .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 8)
         .onAppear {

@@ -207,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // after a single hotkey press — no need to press twice after moving
         // the mouse.
         if let ctrl = mainWindowController, ctrl.isVisible {
-            ctrl.hide()
+            ctrl.hide(restoringFocus: true)
         }
         showMainWindow()
     }

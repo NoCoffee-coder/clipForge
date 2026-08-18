@@ -24,6 +24,13 @@ final class MainWindowController: NSWindowController {
     /// momentarily resign key - both would otherwise hide the panel.
     private var isLiveResizing = false
 
+    /// The app that was frontmost just before we activated ourselves to
+    /// show the panel. `hide(restoringFocus:)` hands focus back to it -
+    /// for an `.accessory` app, macOS does NOT reliably route focus back
+    /// when our key window goes away, leaving no app active (keyboard
+    /// input goes nowhere until the user clicks somewhere).
+    private var previousApp: NSRunningApplication?
+
     var isVisible: Bool {
         window?.isVisible ?? false
     }
@@ -81,7 +88,7 @@ final class MainWindowController: NSWindowController {
             store: app.mainStore,
             settings: app.settings,
             window: window,
-            onClose: { [weak self] in self?.hide() },
+            onClose: { [weak self] in self?.hide(restoringFocus: true) },
             onOpenSettings: { [weak self] in
                 self?.hide()
                 self?.app.showSettingsWindow()
@@ -100,6 +107,15 @@ final class MainWindowController: NSWindowController {
             }
         )
         let hosting = NSHostingController(rootView: view)
+        // Kill the hosting view's own opaque layer so the four corners of
+        // the window (outside SwiftUI's rounded clip) don't show up as
+        // gray right-angle corners. Without this, NSHostingView paints a
+        // solid `windowBackgroundColor` layer behind SwiftUI, and since
+        // the rounded fill only paints inside its own path, the four
+        // corners leak that gray through.
+        hosting.view.wantsLayer = true
+        hosting.view.layer?.backgroundColor = NSColor.clear.cgColor
+        hosting.view.layer?.isOpaque = false
         window?.contentViewController = hosting
     }
 
@@ -149,13 +165,13 @@ final class MainWindowController: NSWindowController {
             // The search field filters as-you-type; Enter is for "paste this",
             // never for "submit query".
             store.copyItem(at: store.selectedIndex)
-            hide()
+            hide(restoringFocus: true)
             return nil
         case 53: // Esc
             if !store.searchQuery.isEmpty {
                 store.search("")
             } else {
-                hide()
+                hide(restoringFocus: true)
             }
             return nil
         case 51, 117: // Delete, Forward delete
@@ -265,21 +281,43 @@ final class MainWindowController: NSWindowController {
     // MARK: - Show / Hide
 
     func show() {
+        // Capture the app we are about to steal focus from, so hide() can
+        // give it back. Skip when we are already the frontmost app (e.g.
+        // re-show while visible) to keep the original target intact.
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previousApp = front
+        }
         positionNearCursor()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         app.mainStore.load()
     }
 
-    func hide() {
+    func hide(restoringFocus: Bool = false) {
         // Guard against repeated calls from multiple monitors
         guard let window = window, window.isVisible else { return }
         window.orderOut(nil)
-        // Note: we deliberately don't call NSApp.deactivate() here.
+        // Give focus back to the app we took it from - but only for
+        // self-initiated hides (Enter/Esc/close-button/hotkey-toggle),
+        // where no other app is taking over on its own. When the panel
+        // lost key because the user clicked or Cmd+Tabbed into another
+        // app (click-outside-to-hide, blur-to-hide), that app already
+        // owns the focus and must keep it - `restoringFocus` stays false
+        // on those paths.
+        //
+        // Note: we deliberately don't call NSApp.deactivate() to do this.
         // For `.accessory` apps (LSUIElement), deactivation is unstable
-        // and can crash on some macOS versions. macOS will route focus
-        // back to the previously active app naturally once our key window
-        // is gone.
+        // and can crash on some macOS versions; explicitly re-activating
+        // the recorded previous app is the stable route.
+        if restoringFocus {
+            let frontmost = NSWorkspace.shared.frontmostApplication
+            if frontmost == nil ||
+               frontmost?.bundleIdentifier == Bundle.main.bundleIdentifier {
+                previousApp?.activate(options: [])
+            }
+        }
+        previousApp = nil
     }
 
     // MARK: - Positioning
