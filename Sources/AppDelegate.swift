@@ -429,8 +429,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         db.trimHistory(limit: settings.config.storageLimit)
 
-        // Auto-save if enabled
-        if settings.config.imageAutoSave && !settings.config.imageSavePath.isEmpty {
+        // Auto-save if enabled. Per PRD §4.3, an empty `imageSavePath`
+        // is treated as the default `~/Desktop/ClipForge` so the toggle
+        // works out of the box without requiring the user to first pick
+        // a directory in settings.
+        if settings.config.imageAutoSave {
+            let defaultImageDir = ("~/Desktop/ClipForge" as NSString).expandingTildeInPath
+            let targetDir = settings.config.imageSavePath.isEmpty
+                ? defaultImageDir
+                : settings.config.imageSavePath
             // File timestamp: "now" by default, or the clipboard item's
             // original copy time when the user opted in via settings.
             let useOriginal = settings.config.imageUseOriginalTimestamp
@@ -442,7 +449,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }()
             _ = try? ImageActions.autoSaveImage(
                 source: filePath,
-                targetDir: settings.config.imageSavePath,
+                targetDir: targetDir,
                 template: settings.config.imageNamingTemplate,
                 sourceApp: sourceApp,
                 fileTimestamp: fileTimestamp

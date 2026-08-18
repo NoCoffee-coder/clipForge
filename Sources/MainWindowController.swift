@@ -38,26 +38,42 @@ final class MainWindowController: NSWindowController {
     init(app: AppDelegate) {
         self.app = app
 
-        // Borderless regular window (not nonactivatingPanel) so it can become
-        // key and receive keyboard events. `.resizable` enables programmatic
-        // content-size changes; the user resizes via the custom drag handle
-        // in the SwiftUI view (no system resize affordance on a borderless
-        // window). `.transient` keeps it out of Mission Control and the
-        // Window menu.
+        // Modeled after JsonViewerWindowController: a *titled* NSWindow
+        // (not borderless) with the title bar made transparent and
+        // hidden. We previously used `.borderless` + `isOpaque = false`
+        // + `backgroundColor = .clear` to get a Spotlight-style popup,
+        // but that approach forced SwiftUI to paint every corner pixel
+        // itself — the four corners live OUTSIDE the rounded SwiftUI
+        // clip, and `_NSHostingView` draws an opaque layer beneath that
+        // ignores `view.layer.backgroundColor = .clear`, so the corners
+        // leaked gray. A titled window sidesteps the problem entirely:
+        // AppKit's standard window chrome owns the background, the
+        // window has its own rounded shape, and SwiftUI just fills
+        // the content area like in the JSON viewer — no corner
+        // gymnastics required.
         let window = KeyableWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-            styleMask: [.borderless, .resizable],
+            // `.fullSizeContentView` is required for the content view
+            // to extend behind the (hidden) title bar — without it,
+            // AppKit reserves a ~28pt title-bar strip at the top of
+            // the window that the SwiftUI content can't reach, leaving
+            // a useless empty band above the toolbar. `.titled` keeps
+            // the standard window chrome (rounded shape, drop shadow,
+            // opaque background) that solves the four-corner problem.
+            styleMask: [.titled, .resizable, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.hasShadow = false  // SwiftUI's .shadow draws the rounded drop shadow; the system window shadow would otherwise frame the panel with a dark rectangular border visible at the corners.
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         window.isMovableByWindowBackground = true
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        // Hide the traffic-light buttons — we have our own close button
+        // in the SwiftUI toolbar, and the standard ones would clash.
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.hidesOnDeactivate = false  // we manage hide ourselves
         // Minimum size enforced so the panel stays usable
         window.minSize = NSSize(width: 480, height: 360)

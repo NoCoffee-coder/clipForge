@@ -151,7 +151,7 @@ struct SettingsView: View {
             HStack {
                 Text(L10n.t("image_save_path", language: language))
                 Spacer()
-                Text(c.imageSavePath.isEmpty ? "~/Desktop/Clipboard" : c.imageSavePath)
+                Text(c.imageSavePath.isEmpty ? "~/Desktop/ClipForge" : c.imageSavePath)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

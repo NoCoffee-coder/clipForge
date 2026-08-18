@@ -31,22 +31,12 @@ struct MainPanelView: View {
     }
 
     var body: some View {
-        ZStack {
-            // Full-rect transparent back layer. The four corner pixels of
-            // the window live OUTSIDE the rounded clip of the inner
-            // content, so they would otherwise show whatever opaque
-            // surface sits underneath the SwiftUI view (in practice, the
-            // gray drawn by `_NSHostingView`, which ignores
-            // `view.layer.backgroundColor = .clear`). Putting `Color.clear`
-            // here as a sibling (not a `.background`, which gets
-            // pulled into the clip) ensures SwiftUI explicitly paints
-            // those corner pixels with alpha 0, so they composite
-            // through to the desktop instead of leaking gray. `ZStack`
-            // is not affected by the inner `clipShape`, so the clear
-            // reaches all four corners.
-            Color.clear
-
-            VStack(spacing: 0) {
+        // No ZStack, no transparent background trick, no custom shadow:
+        // the window is now `.titled` (see MainWindowController.init), so
+        // AppKit's standard chrome owns the background, rounded window
+        // shape, and drop shadow. SwiftUI just paints the inner surface
+        // and its own hairline border on top of the chrome.
+        VStack(spacing: 0) {
                 // Title bar — slim, translucent, integrated with the panel
                 titleBar
 
@@ -106,8 +96,8 @@ struct MainPanelView: View {
             }
             // Rounded fill for the panel surface. `panelBackground` is a
             // RoundedRectangle.fill, so it only paints inside the rounded
-            // path (corners are already handled by the ZStack's
-            // `Color.clear` back layer).
+            // path (corners are handled by the ZStack's
+            // `.background(Color.clear)`).
             .background(panelBackground)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             // Hairline rounded border that follows the clipped edge.
@@ -121,14 +111,28 @@ struct MainPanelView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(borderColor, lineWidth: 1)
             )
-        }
+            // Drop shadow lives on the clipped VStack (not the ZStack)
+            // so the shadow is itself clipped to the rounded shape and
+            // does NOT extend out into the four transparent corner
+            // pixels. `.compositingGroup()` is required for the shadow
+            // to follow the rounded path rather than the union of the
+            // inner sub-views' opaque regions.
+            .compositingGroup()
+            .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 8)
         // Flexible frame: respects window resize via NSWindow.setContentSize.
         // The previous hard-coded 640×480 prevented setContentSize from
         // taking effect because SwiftUI treated it as a hard layout constraint.
         .frame(minWidth: 480, idealWidth: 640, maxWidth: .infinity,
                minHeight: 360, idealHeight: 480, maxHeight: .infinity)
-        .compositingGroup()
-        .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 8)
+        // `.ignoresSafeArea` makes the SwiftUI view extend past the
+        // contentView's safe-area insets, which on a titled window
+        // still include the (hidden) title-bar height even with
+        // `.fullSizeContentView` set on the window. Without this, a
+        // blank title-bar strip shows above the custom toolbar.
+        .ignoresSafeArea()
+        // (No `.background(Color.clear)` here any more — the window is
+        // `.titled` now and AppKit's standard chrome owns the area
+        // outside the SwiftUI rounded clip. See the body comment above.)
         .onAppear {
             store.load()
             // Auto-focus the search field on appear so the user can start
@@ -173,12 +177,17 @@ struct MainPanelView: View {
 
     // MARK: - Background
 
-    /// Whiter than `.regularMaterial` (which the user said was too gray).
-    /// Uses the system window background color so it adapts to light/dark,
-    /// at high opacity so the desktop doesn't bleed through.
+    /// Panel surface fill. On a `.titled` window the system chrome
+    /// already paints the area behind the content, so the SwiftUI
+    /// surface only needs to be *visibly distinct* from the chrome
+    /// background — we use the system control background color at
+    /// full opacity, which adapts to light/dark automatically and is
+    /// one shade off the chrome so the panel reads as a separate
+    /// surface (with the hairline border on top) without going
+    /// opaque-white.
     private var panelBackground: some View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(nsColor: .windowBackgroundColor).opacity(0.97))
+            .fill(Color(nsColor: .controlBackgroundColor))
     }
 
     // MARK: - Title Bar (draggable)
