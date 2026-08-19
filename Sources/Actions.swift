@@ -58,22 +58,43 @@ enum JsonActions {
         return result
     }
 
-    /// Open JSON file in external tool
-    static func openInExternalTool(toolPath: String, filePath: String) {
+    /// Open JSON file in external tool. Returns true iff the launch
+    /// actually succeeded (used by the caller to decide whether closing
+    /// the JSON viewer window is appropriate).
+    @discardableResult
+    static func openInExternalTool(toolPath: String, filePath: String) -> Bool {
         let task = Process()
+        let viaOpen: Bool
         if toolPath.isEmpty {
-            // Use system default
+            // Use system default app for the file type
             task.launchPath = "/usr/bin/open"
             task.arguments = [filePath]
+            viaOpen = true
         } else if toolPath.hasSuffix(".app") {
             // macOS .app bundle
             task.launchPath = "/usr/bin/open"
             task.arguments = ["-a", toolPath, filePath]
+            viaOpen = true
         } else {
             task.launchPath = toolPath
             task.arguments = [filePath]
+            viaOpen = false
         }
-        try? task.run()
+        do {
+            try task.run()
+        } catch {
+            // Bad tool path / not executable
+            return false
+        }
+        if viaOpen {
+            // `/usr/bin/open` returns as soon as the launch is attempted
+            // (it does NOT wait for the app unless passed -W), so its exit
+            // status reliably tells us whether an app actually took the
+            // file - e.g. no default app for .json -> non-zero.
+            task.waitUntilExit()
+            return task.terminationStatus == 0
+        }
+        return true
     }
 }
 

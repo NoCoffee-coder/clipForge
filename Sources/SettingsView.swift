@@ -1,13 +1,11 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Settings View
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
     let onClose: () -> Void
-
-    @State private var pickingExternalTool = false
-    @State private var pickingImagePath = false
 
     private var language: String { settings.config.language }
     private var c: AppConfig { settings.config }
@@ -25,16 +23,6 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .frame(width: 680, height: 600)
         .background(.regularMaterial)
-        .fileImporter(isPresented: $pickingExternalTool, allowedContentTypes: [.application]) { result in
-            if case .success(let url) = result {
-                settings.update("json_external_tool", url.path)
-            }
-        }
-        .fileImporter(isPresented: $pickingImagePath, allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                settings.update("image_save_path", url.path)
-            }
-        }
     }
 
     // MARK: - Sections
@@ -106,16 +94,19 @@ struct SettingsView: View {
             HStack {
                 Text(L10n.t("json_external_tool", language: language))
                 Spacer()
-                Text(c.jsonExternalTool.isEmpty ? "VS Code (default)" : (c.jsonExternalTool as NSString).lastPathComponent)
+                Text(c.jsonExternalTool.isEmpty
+                     ? L10n.t("json_external_tool_default", language: language)
+                     : (c.jsonExternalTool as NSString).lastPathComponent)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: 220, alignment: .trailing)
                 Button(L10n.t("browse", language: language)) {
-                    pickingExternalTool = true
+                    pickExternalTool()
                 }
             }
+            .help(L10n.t("json_external_tool_hint", language: language))
         }
     }
 
@@ -158,7 +149,7 @@ struct SettingsView: View {
                     .truncationMode(.middle)
                     .frame(maxWidth: 220, alignment: .trailing)
                 Button(L10n.t("browse", language: language)) {
-                    pickingImagePath = true
+                    pickImagePath()
                 }
             }
 
@@ -175,6 +166,33 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    // MARK: - File Pickers
+    //
+    // NSOpenPanel instead of SwiftUI's .fileImporter: two stacked
+    // fileImporter modifiers on one Form are unreliable on macOS (the
+    // panel simply never appears), and fileImporter's `.application`
+    // content type doesn't cleanly cover .app bundles anyway.
+
+    private func pickExternalTool() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.application, .executable]
+        panel.message = L10n.t("json_external_tool_hint", language: language)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        settings.update("json_external_tool", url.path)
+    }
+
+    private func pickImagePath() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        settings.update("image_save_path", url.path)
     }
 
     @ViewBuilder

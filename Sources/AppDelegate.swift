@@ -242,33 +242,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func openJsonViewer(itemId: Int64) {
         guard let item = db.getItem(id: itemId) else { return }
-        jsonViewerCounter += 1
-        // Title must identify WHICH item this viewer is for — a bare
-        // "JSON #1" / "JSON #2" sequence tells the user nothing when they
-        // have several viewers open. We surface THREE things so the user
-        // can always tell whether they're looking at the same record as
-        // before:
-        //   1. The viewer's own counter (so multi-window instances stay
-        //      distinguishable when the user opens several at once).
-        //   2. The DB item id — this is the only TRULY unique identifier
-        //      and lets the user prove "yes, this is the same record" /
-        //      "no, the list re-shifted under me". Two items can share the
-        //      same preview prefix (e.g. several `{"name":"Alice"...`
-        //      rows), so the preview alone is not a reliable identity.
-        //   3. A short snippet of the content's first line, so the user
-        //      can eyeball what they're looking at.
-        let snippet: String = {
-            let source = item.content?.trimmingCharacters(in: .whitespacesAndNewlines)
-                ?? item.preview ?? ""
-            if source.isEmpty { return "" }
-            let firstLine = source.components(separatedBy: .newlines).first ?? source
-            let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-            let cut = String(trimmed.prefix(60))
-            return cut == trimmed ? cut : cut + "…"
-        }()
-        let title = snippet.isEmpty
-            ? "JSON #\(jsonViewerCounter) · #\(itemId)"
-            : "JSON #\(jsonViewerCounter) · #\(itemId) — \(snippet)"
+        // Window numbering: "JSON #1", "JSON #2", ... The counter keeps
+        // incrementing while ANY viewer is open (closing #1 does not let
+        // the next window reuse 1), but resets to 1 once ALL viewers are
+        // closed - the next window after that starts from #1 again.
+        jsonViewerCounter = jsonViewerControllers.isEmpty ? 1 : jsonViewerCounter + 1
+        let title = "JSON #\(jsonViewerCounter)"
         let controller = JsonViewerWindowController(
             app: self,
             itemId: itemId,
