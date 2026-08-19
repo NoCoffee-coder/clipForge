@@ -3,9 +3,7 @@ import SwiftUI
 // MARK: - Clipboard List View
 
 struct ClipboardListView: View {
-    let items: [ClipboardItem]
-    let selectedIndex: Int
-    let hoveredIndex: Int?
+    @ObservedObject var store: MainPanelStore
     let language: String
     let onSelect: (Int) -> Void
     let onHover: (Int?) -> Void
@@ -20,11 +18,11 @@ struct ClipboardListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 1) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    ForEach(Array(store.items.enumerated()), id: \.element.id) { index, item in
                         ClipboardItemRowView(
                             item: item,
-                            isSelected: index == selectedIndex,
-                            isHovered: index == hoveredIndex,
+                            isSelected: index == store.selectedIndex,
+                            isHovered: index == store.hoveredIndex,
                             language: language,
                             onTap: { onSelect(index) },
                             onDoubleTap: { onCopy(index) },
@@ -39,10 +37,44 @@ struct ClipboardListView: View {
                 }
                 .padding(.vertical, 4)
             }
-            .onChange(of: selectedIndex) { newValue in
-                if newValue >= 0 && newValue < items.count {
+            // Recreate the ScrollView on window-open / type-filter change.
+            // Changing `.id` makes SwiftUI treat it as a brand-new view and
+            // discard its NSScrollView scroll offset, so the list reliably
+            // returns to the top.
+            .id(store.scrollResetToken)
+            .onChange(of: store.selectedIndex) { newValue in
+                // Scroll the selection into view. We read `store.items`
+                // INSIDE the deferred async block (not the closure's captured
+                // view values) because when `load()` / `setTypeFilter()`
+                // reset the selection in the same update that replaces
+                // `items`, the captured copy is still the PREVIOUS list and
+                // would scroll to a totally different (mid-list) row.
+                DispatchQueue.main.async {
+                    let items = store.items
+                    guard newValue >= 0 && newValue < items.count else { return }
                     withAnimation(.easeOut(duration: 0.12)) {
                         proxy.scrollTo(items[newValue].id, anchor: .center)
+                    }
+                }
+            }
+            .onChange(of: store.scrollResetToken) { newToken in
+                // Window opened / type filter changed. The `.id` above
+                // already recreates the ScrollView, but on REOPEN the
+                // window is re-shown in the same update and the offset can
+                // survive. Scroll explicitly once the layout pass has
+                // settled (async) - the same pattern JsonViewerView uses
+                // for its content area.
+                DispatchQueue.main.async {
+                    if let firstId = store.items.first?.id {
+                        proxy.scrollTo(firstId, anchor: .top)
+                    }
+                }
+            }
+            .onAppear {
+                // First mount: pin the list to the top after layout.
+                DispatchQueue.main.async {
+                    if let firstId = store.items.first?.id {
+                        proxy.scrollTo(firstId, anchor: .top)
                     }
                 }
             }

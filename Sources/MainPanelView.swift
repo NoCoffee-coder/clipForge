@@ -64,9 +64,7 @@ struct MainPanelView: View {
                 // Content: list + preview
                 HStack(spacing: 0) {
                     ClipboardListView(
-                        items: items,
-                        selectedIndex: store.selectedIndex,
-                        hoveredIndex: store.hoveredIndex,
+                        store: store,
                         language: language,
                         onSelect: { idx in store.selectedIndex = idx },
                         onHover: { idx in store.hoveredIndex = idx },

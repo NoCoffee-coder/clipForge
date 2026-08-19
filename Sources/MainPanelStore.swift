@@ -18,6 +18,17 @@ final class MainPanelStore: ObservableObject {
     /// @FocusState to the search field.
     @Published var searchFocusRequest: Int = 0
 
+    /// Incremented whenever the list should jump back to the top - on
+    /// window open and on type-filter change. ClipboardListView uses this
+    /// as the ScrollView's `.id`, forcing a clean recreation so its
+    /// NSScrollView scroll offset is discarded and the list returns to the
+    /// first row. A plain `selectedIndex = 0` doesn't suffice: if the
+    /// selection was already 0, SwiftUI's `.onChange` never fires and the
+    /// ScrollView keeps its previous scroll offset, so the panel can
+    /// reopen scrolled to a mid-list item (the one that was last opened
+    /// in a JSON viewer).
+    @Published var scrollResetToken: Int = 0
+
     /// True iff the search field (SearchBarView's TextField) is the focused
     /// field. MainPanelView syncs this from its `@FocusState searchFocused`
     /// via `.onChange`. The window-level key monitor in MainWindowController
@@ -60,6 +71,7 @@ final class MainPanelStore: ObservableObject {
         knownIds = Set(results.map { $0.id })
         items = results
         selectedIndex = 0
+        scrollResetToken &+= 1
     }
 
     /// Incremental append — called when a new clipboard item is captured.
@@ -127,6 +139,10 @@ final class MainPanelStore: ObservableObject {
         typeFilter = value
         // Re-run current query (or full reload)
         search(searchQuery)
+        // A filter change is a fresh view: reset to the first item and
+        // jump the list back to the top (see `scrollResetToken`).
+        selectedIndex = 0
+        scrollResetToken &+= 1
     }
 
     func search(_ query: String) {
