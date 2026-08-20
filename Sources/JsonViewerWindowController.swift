@@ -17,6 +17,13 @@ final class JsonViewerWindowController: NSWindowController {
     /// which also produces an NSTextView when clicked.
     private var isSearchFieldFocused: Bool = false
 
+    /// True while the window is pinned (floating above all normal
+    /// windows). Owned by the title-bar pin button below.
+    private var isPinned: Bool = false
+    /// The pin button in the title bar. Plain AppKit (not SwiftUI) since
+    /// it lives in the window chrome, outside the hosted content view.
+    private var pinButton: NSButton?
+
     /// Bumped by the Cmd+F branch of the key monitor below. JsonViewerView
     /// observes it and focuses its search field (see the class comment).
     private let searchFocus = JsonViewerSearchFocus()
@@ -75,6 +82,7 @@ final class JsonViewerWindowController: NSWindowController {
         super.init(window: window)
 
         setupContent()
+        setupPinButton()
     }
 
     @available(*, unavailable)
@@ -88,6 +96,7 @@ final class JsonViewerWindowController: NSWindowController {
             itemId: itemId,
             content: content,
             title: windowTitle,
+            language: app.settings.config.language,
             searchFocus: searchFocus,
             onClose: { [weak self] in
                 self?.close()
@@ -145,6 +154,58 @@ final class JsonViewerWindowController: NSWindowController {
             self.close()
             return nil
         }
+    }
+
+    // MARK: - Pin (always on top)
+
+    /// Installs the pin button at the far right of the title bar via a
+    /// trailing titlebar accessory. Toggling it switches the window's
+    /// level between `.floating` (above all normal windows, same
+    /// mechanism the main panel uses) and `.normal`.
+    private func setupPinButton() {
+        guard let window = window else { return }
+
+        let button = NSButton()
+        button.bezelStyle = .texturedRounded
+        button.imageScaling = .scaleProportionallyDown
+        button.target = self
+        button.action = #selector(togglePin)
+        pinButton = button
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 30, height: 24))
+        button.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            button.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            button.widthAnchor.constraint(equalToConstant: 26),
+            button.heightAnchor.constraint(equalToConstant: 20),
+        ])
+
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.view = container
+        accessory.layoutAttribute = .trailing
+        window.addTitlebarAccessoryViewController(accessory)
+
+        refreshPinButton()
+    }
+
+    @objc private func togglePin() {
+        isPinned.toggle()
+        window?.level = isPinned ? .floating : .normal
+        refreshPinButton()
+    }
+
+    /// Syncs the pin button's icon / tint / tooltip with `isPinned`.
+    private func refreshPinButton() {
+        guard let button = pinButton else { return }
+        let lang = app?.settings.config.language ?? "zh"
+        button.image = NSImage(
+            systemSymbolName: isPinned ? "pin.fill" : "pin",
+            accessibilityDescription: nil
+        )
+        button.contentTintColor = isPinned ? .controlAccentColor : nil
+        button.toolTip = L10n.t(isPinned ? "unpin" : "pin", language: lang)
     }
 
     func show() {

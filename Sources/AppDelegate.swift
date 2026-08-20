@@ -344,6 +344,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Clipboard Handlers (called by ClipboardMonitor)
 
     func handleText(_ text: String) {
+        // Dedup: if this exact content is already in history, don't insert
+        // a duplicate row. The pasteboard can be re-written with an older
+        // entry (pasting from ClipForge itself, the JSON viewer's Copy
+        // button, or a clipboard-sync tool re-asserting stale content -
+        // the DB showed the same text captured up to 3x/second). Move the
+        // existing row back to the top instead; its id and pin state are
+        // preserved.
+        if let existingId = db.findDuplicateItemId(content: text, imagePath: nil, filePaths: nil) {
+            db.bumpItemToTop(id: existingId)
+            let updated = db.getItem(id: existingId)
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, let updated = updated else { return }
+                // Re-anchor the selection by id BEFORE the bump reshuffles
+                // items. A bump means "this content was re-captured"
+                // (external tool rewriting the pasteboard, the JSON
+                // viewer's Copy button, paste-from-history), not "the user
+                // made a new copy" - so it must not steal the row the
+                // user is currently looking at. The fresh-insert path
+                // below keeps selectedIndex = 0 (show the new copy).
+                let prevSelId = self.mainStore.items.indices.contains(self.mainStore.selectedIndex)
+                    ? self.mainStore.items[self.mainStore.selectedIndex].id : nil
+                self.mainStore.removeItem(id: existingId)
+                self.mainStore.prependItem(updated)
+                if let pid = prevSelId,
+                   let ni = self.mainStore.items.firstIndex(where: { $0.id == pid }) {
+                    self.mainStore.selectedIndex = ni
+                }
+            }
+            return
+        }
+
         let type = ContentDetector.detectType(text)
         let preview = ContentDetector.makePreview(text, maxLen: 200)
         let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
@@ -358,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         db.trimHistory(limit: settings.config.storageLimit)
 
-        // Incremental UI update — no full reload
+        // Incremental UI update - no full reload
         let newItem = db.getItem(id: id)
         DispatchQueue.main.async { [weak self] in
             if let item = newItem {
@@ -372,7 +403,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileName = String(hash.prefix(16)) + ".png"
         let filePath = imagesDirectory().appendingPathComponent(fileName).path
 
-        // Save image — extract real pixel dimensions
+        // Dedup: identical image data hashes to the same file path - bump
+        // the existing row to the top instead of inserting a duplicate
+        // (see handleText).
+        if let existingId = db.findDuplicateItemId(content: nil, imagePath: filePath, filePaths: nil) {
+            db.bumpItemToTop(id: existingId)
+            let updated = db.getItem(id: existingId)
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, let updated = updated else { return }
+                // Bump = re-capture, not a new copy. Keep the user's
+                // current selection on the same row (re-anchored by id
+                // after the remove+prepend reshuffle). See handleText.
+                let prevSelId = self.mainStore.items.indices.contains(self.mainStore.selectedIndex)
+                    ? self.mainStore.items[self.mainStore.selectedIndex].id : nil
+                self.mainStore.removeItem(id: existingId)
+                self.mainStore.prependItem(updated)
+                if let pid = prevSelId,
+                   let ni = self.mainStore.items.firstIndex(where: { $0.id == pid }) {
+                    self.mainStore.selectedIndex = ni
+                }
+            }
+            return
+        }
+
+        // Save image - extract real pixel dimensions
         var imageWidth: Int32? = nil
         var imageHeight: Int32? = nil
         if let image = NSImage(data: imageData),
@@ -435,7 +489,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
 
-        // Incremental UI update — no full reload
+        // Incremental UI update - no full reload
         let newItem = db.getItem(id: id)
         DispatchQueue.main.async { [weak self] in
             if let item = newItem {
@@ -449,6 +503,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let preview = paths.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
         let filePathsJson = (try? JSONEncoder().encode(paths))?.asString
 
+        // Dedup: identical file list -> bump the existing row to the top
+        // instead of inserting a duplicate (see handleText).
+        if let filePathsJson = filePathsJson,
+           let existingId = db.findDuplicateItemId(content: nil, imagePath: nil, filePaths: filePathsJson) {
+            db.bumpItemToTop(id: existingId)
+            let updated = db.getItem(id: existingId)
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, let updated = updated else { return }
+                // Bump = re-capture, not a new copy. Keep the user's
+                // current selection on the same row (re-anchored by id
+                // after the remove+prepend reshuffle). See handleText.
+                let prevSelId = self.mainStore.items.indices.contains(self.mainStore.selectedIndex)
+                    ? self.mainStore.items[self.mainStore.selectedIndex].id : nil
+                self.mainStore.removeItem(id: existingId)
+                self.mainStore.prependItem(updated)
+                if let pid = prevSelId,
+                   let ni = self.mainStore.items.firstIndex(where: { $0.id == pid }) {
+                    self.mainStore.selectedIndex = ni
+                }
+            }
+            return
+        }
+
         let id = db.insertItem(
             type: ContentType.files.rawValue,
             content: nil,
@@ -459,7 +536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         db.trimHistory(limit: settings.config.storageLimit)
 
-        // Incremental UI update — no full reload
+        // Incremental UI update - no full reload
         let newItem = db.getItem(id: id)
         DispatchQueue.main.async { [weak self] in
             if let item = newItem {

@@ -70,7 +70,11 @@ final class MainPanelStore: ObservableObject {
         let results = app.db.getHistory(limit: 200)
         knownIds = Set(results.map { $0.id })
         items = results
-        selectedIndex = 0
+        // Select the most recently CAPTURED item, not the first row: the
+        // list sorts pinned items to the top, so a stale pinned entry
+        // would otherwise hijack the auto-selection on every open and
+        // the preview would show it instead of what was just copied.
+        selectedIndex = results.firstIndex(where: { !$0.isPinned }) ?? 0
         scrollResetToken &+= 1
     }
 
@@ -80,13 +84,14 @@ final class MainPanelStore: ObservableObject {
         guard !knownIds.contains(item.id) else { return }
         knownIds.insert(item.id)
         items.insert(item, at: 0)
-        // A new item at the top pushes every existing row down by one. If the
-        // user had anything selected, that selection now points at a DIFFERENT
-        // item — the visual highlight follows the index, but the user's intent
-        // was to keep the same item selected. Bump selectedIndex so the
-        // previously-selected row stays highlighted (and hotkey-driven actions
-        // like "open JSON viewer for selection" still target the same item).
-        if selectedIndex >= 0 { selectedIndex += 1 }
+        // Select the freshly captured item. The typical flow is "copy
+        // something, open the panel": if the capture lands AFTER load()
+        // (the monitor polls every 200ms, so pressing the hotkey within
+        // that window loads a list that doesn't yet contain the new
+        // item), keeping the old selection would leave the preview stuck
+        // on the previous clipboard entry. Pointing the selection at the
+        // new row makes the preview follow what was just copied.
+        selectedIndex = 0
     }
 
     /// Remove item by id — in-place mutation, no full reload

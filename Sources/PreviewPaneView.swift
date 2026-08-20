@@ -102,11 +102,22 @@ struct PreviewPaneView: View {
     private func content(for item: ClipboardItem) -> some View {
         switch ContentType(rawValue: item.type) {
         case .json:
+            // `.id(item.id)` forces the JSON preview to be recreated when
+            // the selection changes to a different row. The view's
+            // `@State cached` highlight is recomputed in onAppear; without
+            // this, mutating the store via dedup bumps (removeItem +
+            // prependItem) can leave `cached` pointing at the previous
+            // selection's content while the footer (which reads `item`
+            // fresh on every body) reflects the new one — producing a
+            // visible split between the highlighted code and the row's
+            // metadata. Recreating the view on id change eliminates the
+            // stale-cache class of bugs entirely.
             JsonPreviewView(
                 content: item.content ?? "",
                 autoFormat: true,
                 language: language
             )
+            .id(item.id)
         case .html:
             ScrollView {
                 Text(item.content ?? "")

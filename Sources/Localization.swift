@@ -84,6 +84,17 @@ enum L10n {
         // Search
         "clear": ("清空", "Clear"),
 
+        // JSON viewer window
+        "minify": ("压缩", "Minify"),
+        "external": ("外部打开", "External"),
+        "close": ("关闭", "Close"),
+        "prev_match": ("上一个匹配 (⇧⌘G)", "Previous match (⇧⌘G)"),
+        "next_match": ("下一个匹配 (⌘G)", "Next match (⌘G)"),
+        "match_count_help": ("当前/总匹配行数", "current/total matching lines"),
+        "json_empty": ("(空)", "(empty)"),
+        "space_indent": ("%d 空格缩进", "%d space indent"),
+        "tab_indent": ("Tab 缩进", "Tab indent"),
+
         // Preview
         "preview_empty": ("选一条记录预览", "Select an item to preview"),
 

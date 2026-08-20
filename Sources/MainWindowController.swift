@@ -6,12 +6,23 @@ import SwiftUI
 /// Manages the main popup window: vibrancy, cursor positioning, keyboard nav,
 /// click-outside-to-hide, and focus-loss auto-hide.
 ///
-/// Implementation note: we use a regular borderless `NSWindow` (not
-/// `.nonactivatingPanel`) so the window can become key and receive keyDown
-/// events. `.nonactivatingPanel` would have left the popup "transparent" to
-/// the keyboard — every ↑/↓/Enter/Esc would have gone to whichever app the
-/// user was in before. We compensate for the focus theft by activating the
-/// app on show and deactivating on hide, so the previous app gets focus back.
+/// Implementation note: the main popup is an `NSPanel` with the
+/// `.nonactivatingPanel` style mask. This is the architecture Spotlight,
+/// Raycast, Alfred, and 1Password use for panels that must appear OVER
+/// fullscreen apps on modern macOS. A regular `.titled` `NSWindow`
+/// belongs to the app's "main window" layer and is treated by
+/// WindowServer as a sibling of the fullscreen app's content — on
+/// macOS 26 (Tahoe) in particular, NSWindow + `.fullScreenAuxiliary`
+/// still gets clipped/hidden behind the fullscreen content because
+/// the fullscreen window sits in a separate Space the main window
+/// can't reliably join. `NSPanel` + `.nonactivatingPanel` lives in
+/// the panel layer (above main windows, below pop-ups), can join
+/// the fullscreen Space via `.canJoinAllSpaces`, and crucially does
+/// NOT try to activate the app — so there's no activation fight
+/// with the frontmost fullscreen app. The panel itself still becomes
+/// the key window (overridden below) so ↑/↓/Enter/Esc go to it; the
+/// app just stays in the background, which is exactly what a
+/// Spotlight-style popup wants.
 final class MainWindowController: NSWindowController {
 
     private weak var app: AppDelegate!
@@ -30,6 +41,14 @@ final class MainWindowController: NSWindowController {
     /// when our key window goes away, leaving no app active (keyboard
     /// input goes nowhere until the user clicks somewhere).
     private var previousApp: NSRunningApplication?
+
+    /// Timestamp of the last show(). windowDidResignKey uses it as a grace
+    /// period: right after summoning, macOS can hand the panel key status
+    /// and immediately revoke it (notably over fullscreen Spaces, where
+    /// the activation race yanks key back to the fullscreen app). Hiding
+    /// on that spurious blur would make the panel flash and vanish the
+    /// instant the hotkey summons it.
+    private var lastShowTime: Date?
 
     var isVisible: Bool {
         window?.isVisible ?? false
@@ -51,7 +70,7 @@ final class MainWindowController: NSWindowController {
         // window has its own rounded shape, and SwiftUI just fills
         // the content area like in the JSON viewer — no corner
         // gymnastics required.
-        let window = KeyableWindow(
+        let window = KeyablePanel(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             // `.fullSizeContentView` is required for the content view
             // to extend behind the (hidden) title bar — without it,
@@ -60,12 +79,30 @@ final class MainWindowController: NSWindowController {
             // a useless empty band above the toolbar. `.titled` keeps
             // the standard window chrome (rounded shape, drop shadow,
             // opaque background) that solves the four-corner problem.
-            styleMask: [.titled, .resizable, .closable, .fullSizeContentView],
+            // `.nonactivatingPanel` (NSPanel-only) is the critical bit
+            // for fullscreen Spaces: it makes the panel live in the
+            // panel layer and not activate the app, so it can show
+            // over a fullscreen app without an activation fight.
+            styleMask: [.titled, .resizable, .closable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        // .statusBar (25) rather than .floating (3): some fullscreen apps
+        // raise their window level above .floating, which would swallow
+        // the panel on fullscreen Spaces. 25 clears normal/fullscreen
+        // windows while staying below menu/pop-up levels (24+ is fine:
+        // the panel never overlaps the menu bar).
+        window.level = .statusBar
+        // NOTE: `.transient` is deliberately NOT set. It means "this window
+        // lives in a single Space" and contradicts `.canJoinAllSpaces`;
+        // with both set, macOS keeps the window pinned to its original
+        // Space, so when another app is in fullscreen the hotkey's
+        // makeKeyAndOrderFront() orders it front on an invisible Space -
+        // the panel can no longer be summoned at all (and since it counts
+        // as "visible", the next hotkey press toggles it back to hidden).
+        // canJoinAllSpaces + fullScreenAuxiliary is the standard recipe
+        // for panels that must appear over fullscreen apps.
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.isMovableByWindowBackground = true
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -282,6 +319,15 @@ final class MainWindowController: NSWindowController {
     }
 
     @objc private func windowDidResignKey() {
+        // Grace period after show(): a spurious blur right after
+        // summoning (fullscreen activation race, see lastShowTime) must
+        // not hide the panel the user just opened.
+        if let shownAt = lastShowTime,
+           Date().timeIntervalSince(shownAt) < 0.5 {
+            NSLog("ClipForge: resignKey within grace period, keeping panel")
+            return
+        }
+        NSLog("ClipForge: panel lost key")
         let blurTime = Date()
         lastBlurTime = blurTime
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
@@ -304,16 +350,28 @@ final class MainWindowController: NSWindowController {
            front.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousApp = front
         }
+        lastShowTime = Date()
         positionNearCursor()
         window?.makeKeyAndOrderFront(nil)
+        // Belt & suspenders for fullscreen Spaces: when the frontmost app
+        // owns a fullscreen Space, activate() can silently fail to bring
+        // an .accessory app forward and defer the ordering. Forcing the
+        // order makes sure the panel shows up regardless.
+        window?.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
+        // Re-assert key after the activation attempt: over fullscreen
+        // Spaces the first makeKeyAndOrderFront can be silently revoked
+        // by the activation race.
+        window?.makeKeyAndOrderFront(nil)
         app.mainStore.load()
+        NSLog("ClipForge: main panel shown")
     }
 
     func hide(restoringFocus: Bool = false) {
         // Guard against repeated calls from multiple monitors
         guard let window = window, window.isVisible else { return }
         window.orderOut(nil)
+        NSLog("ClipForge: panel hidden")
         // Give focus back to the app we took it from - but only for
         // self-initiated hides (Enter/Esc/close-button/hotkey-toggle),
         // where no other app is taking over on its own. When the panel
@@ -385,9 +443,14 @@ final class MainWindowController: NSWindowController {
 /// ↑/↓ still work, because those are handled in the monitor's `switch`
 /// before the focus check). Overriding `canBecomeKey` to return `true`
 /// fixes the root cause.
-private final class KeyableWindow: NSWindow {
+private final class KeyablePanel: NSPanel {
+    // Required: NSPanel's default canBecomeKey is false (panels don't
+    // normally receive keyDown). We override to true so ↑/↓/Enter/Esc
+    // reach the search field and key monitor even though we don't
+    // activate the app (thanks to .nonactivatingPanel above).
     override var canBecomeKey: Bool { true }
     // The panel is a popup, not a main window - leave this false so the
-    // app's main-window state is unaffected.
+    // app's main-window state is unaffected. NSPanel already defaults
+    // to false here; the override is kept for documentation.
     override var canBecomeMain: Bool { false }
 }

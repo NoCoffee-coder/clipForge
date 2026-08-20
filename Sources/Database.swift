@@ -226,6 +226,59 @@ final class Database {
         return result
     }
 
+    /// Find the newest existing row that carries the exact same payload
+    /// (text content, image path, or file list). Only the key matching
+    /// the capture kind is compared; the others are passed as nil and
+    /// their clauses short-circuit to false. Used to dedup re-captured
+    /// clipboard content: instead of inserting a duplicate row, the
+    /// caller bumps the existing row back to the top (see
+    /// `bumpItemToTop`).
+    func findDuplicateItemId(content: String?, imagePath: String?, filePaths: String?) -> Int64? {
+        var result: Int64?
+        queue.sync {
+            let sql = """
+            SELECT id FROM clipboard_items
+            WHERE (? IS NOT NULL AND content = ?)
+               OR (? IS NOT NULL AND image_path = ?)
+               OR (? IS NOT NULL AND file_paths = ?)
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+            bindTextNullable(stmt, 1, content)
+            bindTextNullable(stmt, 2, content)
+            bindTextNullable(stmt, 3, imagePath)
+            bindTextNullable(stmt, 4, imagePath)
+            bindTextNullable(stmt, 5, filePaths)
+            bindTextNullable(stmt, 6, filePaths)
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                result = sqlite3_column_int64(stmt, 0)
+            }
+            sqlite3_finalize(stmt)
+        }
+        return result
+    }
+
+    /// Move an existing row back to the top of the history by refreshing
+    /// its created_at. Preserves the row's id and pin state, so a
+    /// re-capture never produces duplicate rows.
+    func bumpItemToTop(id: Int64) {
+        queue.sync {
+            var stmt: OpaquePointer?
+            sqlite3_prepare_v2(
+                db,
+                "UPDATE clipboard_items SET created_at = ?, accessed_at = ? WHERE id = ?",
+                -1, &stmt, nil
+            )
+            sqlite3_bind_int64(stmt, 1, now())
+            sqlite3_bind_int64(stmt, 2, now())
+            sqlite3_bind_int64(stmt, 3, id)
+            sqlite3_step(stmt)
+            sqlite3_finalize(stmt)
+        }
+    }
+
     func deleteItem(id: Int64) {
         queue.sync {
             var stmt: OpaquePointer?

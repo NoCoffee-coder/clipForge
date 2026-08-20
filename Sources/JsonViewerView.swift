@@ -16,6 +16,7 @@ struct JsonViewerView: View {
     let itemId: Int64
     let content: String
     let title: String
+    let language: String
     @ObservedObject var searchFocus: JsonViewerSearchFocus
     let onClose: () -> Void
     let onOpenExternal: (String) -> Void
@@ -101,12 +102,12 @@ struct JsonViewerView: View {
             indentButton("4", mode: 4)
             indentButton("Tab", mode: 0)
             vDivider()
-            toolButton(label: "Minify", systemImage: "arrow.down.right.and.arrow.up.left", action: minify)
+            toolButton(label: L10n.t("minify", language: language), systemImage: "arrow.down.right.and.arrow.up.left", action: minify)
             vDivider()
-            toolButton(label: "Copy", systemImage: "doc.on.doc", action: copyToClipboard)
-            toolButton(label: "External", systemImage: "arrow.up.forward.app", action: openExternal)
+            toolButton(label: L10n.t("copy", language: language), systemImage: "doc.on.doc", action: copyToClipboard)
+            toolButton(label: L10n.t("external", language: language), systemImage: "arrow.up.forward.app", action: openExternal)
             Spacer(minLength: 8)
-            toolButton(label: "Close", systemImage: "xmark", action: onClose)
+            toolButton(label: L10n.t("close", language: language), systemImage: "xmark", action: onClose)
         }
     }
 
@@ -128,7 +129,9 @@ struct JsonViewerView: View {
                 .foregroundStyle(isActive ? Color.accentColor : Color.primary)
         }
         .buttonStyle(.plain)
-        .help("\(label) space indent")
+        .help(mode == 0
+              ? L10n.t("tab_indent", language: language)
+              : L10n.t("space_indent", language: language, mode))
     }
 
     private func toolButton(label: String, systemImage: String, action: @escaping () -> Void) -> some View {
@@ -164,7 +167,7 @@ struct JsonViewerView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 11))
-            TextField("Search…", text: $searchText)
+            TextField(L10n.t("search_placeholder", language: language), text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .focused($searchFieldFocused)
@@ -173,7 +176,7 @@ struct JsonViewerView: View {
                 Text(matchCountLabel)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)
-                    .help("current/total matching lines")
+                    .help(L10n.t("match_count_help", language: language))
                 Button(action: { jumpMatch(-1, proxy: proxy) }) {
                     Image(systemName: "chevron.up")
                         .font(.system(size: 10, weight: .medium))
@@ -183,7 +186,7 @@ struct JsonViewerView: View {
                 .buttonStyle(.plain)
                 .disabled(matchLineIndices.isEmpty)
                 .keyboardShortcut("g", modifiers: [.command, .shift])
-                .help("Previous match (⇧⌘G)")
+                .help(L10n.t("prev_match", language: language))
                 Button(action: { jumpMatch(1, proxy: proxy) }) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .medium))
@@ -193,14 +196,14 @@ struct JsonViewerView: View {
                 .buttonStyle(.plain)
                 .disabled(matchLineIndices.isEmpty)
                 .keyboardShortcut("g", modifiers: .command)
-                .help("Next match (⌘G)")
+                .help(L10n.t("next_match", language: language))
                 Button(action: { searchText = "" }) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.tertiary)
                         .font(.system(size: 11))
                 }
                 .buttonStyle(.plain)
-                .help("Clear")
+                .help(L10n.t("clear", language: language))
             }
         }
         .padding(.horizontal, 8)
@@ -245,7 +248,7 @@ struct JsonViewerView: View {
             ScrollView([.horizontal, .vertical]) {
                 VStack(alignment: .leading, spacing: 0) {
                     if renderedLines.isEmpty {
-                        Text("(empty)")
+                        Text(L10n.t("json_empty", language: language))
                             .font(Self.mono)
                             .foregroundStyle(.tertiary)
                             .padding(.horizontal, 12)
